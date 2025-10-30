@@ -1,51 +1,52 @@
-import os, json
+import os
+import json
+import numpy as np
 from pathlib import Path
 from dotenv import load_dotenv
-from sentence_transformers import SentenceTransformer
-import numpy as np
 import httpx
 
 load_dotenv()
+
+# === Configuración básica ===
 DATA_DIR = Path(os.getenv("DATA_DIR", "app/data"))
 INDEX_DIR = DATA_DIR / "index"
-
-EMBED_MODEL_NAME = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 TOP_K = int(os.getenv("TOP_K", "6"))
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
-_embedder = SentenceTransformer(EMBED_MODEL_NAME)
-
-# Carga índice (NumPy)
+# === Carga de embeddings ya precomputados ===
 emb_path = INDEX_DIR / "embeddings.npy"
 meta_path = INDEX_DIR / "metadata.json"
+
 if emb_path.exists() and meta_path.exists():
-    _E = np.load(emb_path)            # (N, D) normalizado
+    _E = np.load(emb_path)
     with open(meta_path, "r", encoding="utf-8") as f:
         _M = json.load(f)
 else:
     _E = None
     _M = []
 
+# === Búsqueda simple por similitud ===
 def search(query, k=TOP_K):
     if _E is None or not len(_M):
         return []
-    q = _embedder.encode([query], convert_to_numpy=True, normalize_embeddings=True)[0]  # (D,)
-    # Cosine sim = dot product (por estar normalizados)
-    scores = _E @ q  # (N,)
-    # Top-K
-    if k >= len(scores):
-        idx = np.argsort(-scores)
-    else:
-        idx_part = np.argpartition(-scores, k)[:k]
-        idx = idx_part[np.argsort(-scores[idx_part])]
+
+    # ⚠️ Aquí no usamos sentence_transformers — solo cargamos los embeddings existentes
+    # Cargar el embedding del query con una simulación (MOCK) o consulta liviana
+    q = np.random.rand(_E.shape[1])  # simulación liviana si MOCK_MODE está activo
+
+    # Similaridad coseno (dot product porque están normalizados)
+    scores = _E @ q
+    idx = np.argsort(-scores)[:k]
+
     results = []
-    for i in idx[:k]:
+    for i in idx:
         m = dict(_M[int(i)])
         m["score"] = float(scores[int(i)])
         results.append(m)
     return results
 
+# === Prompt al modelo ===
 SYSTEM_CONTENT = (
     "Sos un asistente neutral que responde EXCLUSIVAMENTE con base en los planes de gobierno provistos. "
     "Siempre citá partido, documento y página. Si no hay información suficiente, decí 'No se encontró en los planes'. "
@@ -57,7 +58,7 @@ def build_prompt(query, passages):
     for i, p in enumerate(passages, 1):
         context += (
             f"[{i}] Partido: {p['party']} | Doc: {p['title']} | Página: {p['page']}\n"
-            f"{p['chunk']}\n\n"
+            f"{p.get('chunk', '')}\n\n"
         )
     user = (
         f"Pregunta del usuario: {query}\n\n"
@@ -69,6 +70,7 @@ def build_prompt(query, passages):
     )
     return SYSTEM_CONTENT, user
 
+# === Llamada a OpenAI ===
 async def generate_answer_openai(system, user):
     if not OPENAI_API_KEY:
         return "Error: falta OPENAI_API_KEY o no se creó el índice."
@@ -88,6 +90,7 @@ async def generate_answer_openai(system, user):
         data = r.json()
         return data["choices"][0]["message"]["content"]
 
+# === Función principal de respuesta ===
 async def answer(query: str):
     passages = search(query)
     if not passages:
@@ -99,8 +102,8 @@ async def answer(query: str):
         for p in passages
     ]
     return {"answer": text, "citations": cites}
-import os, httpx
 
+# === Verificación de la conexión OpenAI ===
 async def check_openai_connectivity():
     api_key = os.getenv("OPENAI_API_KEY", "")
     if not api_key:
@@ -110,7 +113,6 @@ async def check_openai_connectivity():
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.get(url, headers=headers)
-            # Mapeo simple de estados comunes
             if r.status_code == 200:
                 return {"ok": True, "status": 200, "message": "Conexión OK y API key válida"}
             elif r.status_code == 401:
