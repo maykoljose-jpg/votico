@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Contáctanos — Voto Informado CR{% endblock %}
+{% block content %}
+<article class="page">
+  <h1>Contáctanos</h1>
+  <form class="contact-form" id="contactForm">
+    <label>
+      Nombre
+      <input type="text" name="name" required autocomplete="name" />
+    </label>
+    <label>
+      Correo
+      <input type="email" name="email" required autocomplete="email" />
+    </label>
+    <label>
+      Mensaje
+      <textarea name="message" rows="6" required></textarea>
+    </label>
+    <button type="submit" class="btn-primary">Enviar</button>
+    <p class="form-hint">* Por ahora este formulario es de prueba (no envía). Integraremos el backend luego.</p>
+  </form>
+</article>
+<script>
+document.getElementById('contactForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  alert('¡Gracias! Tu mensaje sería enviado al backend cuando lo conectemos.');
+});
+</script>
+{% endblock %}

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>{% block title %}Voto Informado CR{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/styles.css" />
+  <link rel="icon" href="/static/assets/logo.svg" />
+
+  <!-- AdSense (reemplazar Publisher ID y slots) -->
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXXXXXXXXX"
+          crossorigin="anonymous"></script>
+  <!-- ✅ Nuevo script del semáforo -->
+  <script src="/static/js/openai-check.js"></script>
+
+  {% block head %}{% endblock %}
+</head>
+
+<body>
+<header class="site-header">
+  <a class="brand" href="/">Voto Informado CR</a>
+  <nav class="nav">
+    <a href="/" {% if request.url.path == '/' %}aria-current="page"{% endif %}>Inicio</a>
+    <a href="/partidos" {% if request.url.path.startswith('/partidos') %}aria-current="page"{% endif %}>Partidos y sus planes</a>
+    <a href="/contacto" {% if request.url.path.startswith('/contacto') %}aria-current="page"{% endif %}>Contáctanos</a>
+    <a href="/acerca" {% if request.url.path.startswith('/acerca') %}aria-current="page"{% endif %}>Acerca</a>
+	<button id="btn-openai-check" class="badge-check" title="Probar conexión con OpenAI">Probar conexión</button>
+	<span id="badge-openai" class="badge badge--idle" aria-live="polite">Estado: desconocido</span>
+
+  </nav>
+</header>
+
+<main>{% block content %}{% endblock %}</main>
+
+<footer class="site-footer">
+  <small>© {{ year }} Voto Informado CR · Sitio informativo y neutral ·
+    <a href="/acerca" class="footer-link">Política editorial y publicidad</a>
+  </small>
+</footer>
+</body>
+</html>

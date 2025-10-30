@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Voto Informado CR — Inicio{% endblock %}
+{% block content %}
+
+<section class="hero">
+  <h1 class="hero-title">Preguntá sobre propuestas <span class="accent">basadas en planes de gobierno</span></h1>
+  <form class="ask-form" method="get" action="/partidos" role="search" aria-label="Buscar propuestas">
+    <div class="ask-input-wrap">
+      <input name="q" type="search" placeholder="Ej: transporte eléctrico, educación técnica…" value="">
+      <button type="submit" class="btn-primary">Preguntar</button>
+    </div>
+    <p class="ask-hint">Tip: combiná tema + partido. Ej: “salud mental Frente Amplio”.</p>
+  </form>
+</section>
+
+<!-- Banner superior (responsive) con rótulo -->
+<aside class="ad-slot" aria-label="Anuncio">
+  <div class="ad-label">Publicidad</div>
+  <ins class="adsbygoogle" style="display:block;min-height:90px"
+       data-ad-client="ca-pub-XXXXXXXXXXXXXXX"
+       data-ad-slot="1234567890"
+       data-ad-format="auto"
+       data-full-width-responsive="true"></ins>
+</aside>
+<script>(adsbygoogle=window.adsbygoogle||[]).push({});</script>
+
+<section class="parties" aria-labelledby="parties-title">
+  <h2 id="parties-title">Partidos</h2>
+  <div class="parties-grid" role="list">
+    {% set ad_index = range(0, partidos|length)|random %}
+    {% for p in partidos %}
+      {% if loop.index0 == ad_index %}
+        <div class="party-card party-card--ad" role="listitem">
+          <div class="ad-label">Publicidad</div>
+          <ins class="adsbygoogle" style="display:block;width:100%;min-height:140px"
+               data-ad-client="ca-pub-XXXXXXXXXXXXXXX"
+               data-ad-slot="2345678901"
+               data-ad-format="auto"
+               data-full-width-responsive="true"></ins>
+        </div>
+        <script>(adsbygoogle=window.adsbygoogle||[]).push({});</script>
+      {% endif %}
+      <a class="party-card" role="listitem" href="/partidos#{{ p.slug }}">
+        <img src="{{ p.flag }}" alt="Bandera de {{ p.name }}" loading="lazy">
+        <div class="party-name">{{ p.name }}</div>
+      </a>
+    {% endfor %}
+  </div>
+</section>
+
+<!-- Botón y panel de chat -->
+<button id="openChat" class="chat-fab" aria-label="Abrir chat">Chat</button>
+<div id="chatPanel" class="chat-panel" hidden>
+  <div class="chat-header">
+    <strong>Chat — Voto Informado</strong>
+    <button id="closeChat" aria-label="Cerrar">×</button>
+  </div>
+  <div id="chatLog" class="chat-log" role="log" aria-live="polite"></div>
+  <form id="chatForm" class="chat-form">
+    <input id="chatInput" type="text" placeholder="Preguntá sobre un tema..." autocomplete="off" />
+    <button class="btn-primary">Enviar</button>
+  </form>
+  <div class="chat-note">Respuestas basadas en planes de gobierno. Si no está en los documentos, te lo decimos.</div>
+</div>
+<script src="/static/js/chat.js"></script>
+
+{% endblock %}

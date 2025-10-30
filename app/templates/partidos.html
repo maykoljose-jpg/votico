@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Partidos y sus planes — Voto Informado CR{% endblock %}
+{% block content %}
+
+<h1>Partidos y sus planes</h1>
+
+<!-- Si viene q en la URL, mostramos un bloque de respuesta contextual -->
+<section id="qa-section" class="page" style="display:none; margin-top: 16px;">
+  <h2 style="margin:0 0 8px;">Resultados para: <em id="qa-query"></em></h2>
+  <div id="qa-answer" class="msg msg--bot" style="background:#1a1e33;padding:12px;border-radius:12px;"></div>
+  <div id="qa-citations" class="citations" style="font-size:.9rem;color:#a9b0be;margin-top:8px;"></div>
+</section>
+
+<div class="ad-slot" aria-label="Anuncio" style="margin-top:24px;">
+  <div class="ad-label">Publicidad</div>
+  <ins class="adsbygoogle" style="display:block;min-height:200px"
+       data-ad-client="ca-pub-XXXXXXXXXXXXXXX"
+       data-ad-slot="3456789012"
+       data-ad-format="fluid"
+       data-ad-layout="in-article"
+       data-full-width-responsive="true"></ins>
+</div>
+<script>(adsbygoogle=window.adsbygoogle||[]).push({});</script>
+
+<section class="page" style="margin-top: 16px;">
+  <div class="parties-grid" role="list">
+    {% for p in partidos %}
+    <a class="party-card" role="listitem" href="/partidos#{{ p.slug }}">
+      <img src="{{ p.flag }}" alt="Bandera de {{ p.name }}" loading="lazy">
+      <div class="party-name">{{ p.name }}</div>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+
+<script>
+(function(){
+  const params = new URLSearchParams(window.location.search);
+  const q = (params.get('q') || '').trim();
+  if(!q) return;
+
+  // Mostrar bloque de QA
+  document.getElementById('qa-section').style.display = '';
+  document.getElementById('qa-query').textContent = q;
+  document.getElementById('qa-answer').innerHTML = '<em>Buscando en los planes…</em>';
+
+  fetch('/api/chat', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ query: q })
+  })
+  .then(r => r.json())
+  .then(data => {
+    document.getElementById('qa-answer').innerHTML =
+      (data.answer || 'Sin respuesta').replace(/\n/g,'<br>');
+    const cites = data.citations || [];
+    const el = document.getElementById('qa-citations');
+    if (cites.length){
+      el.innerHTML = '<strong>Fuentes:</strong><br>' + cites.slice(0,6).map(c =>
+        `${c.party} — ${c.title} (p. ${c.page})`
+      ).join('<br>');
+    } else {
+      el.textContent = '';
+    }
+  })
+  .catch(_ => {
+    document.getElementById('qa-answer').textContent = 'Error contactando la API.';
+  });
+})();
+</script>
+{% endblock %}
