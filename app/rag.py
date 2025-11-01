@@ -237,7 +237,6 @@ async def answer(query: str, top_k: int = None) -> Dict[str, Any]:
 
     if not hits:
         return {"answer": "Busqué en los planes y no vi propuestas relevantes sobre ese tema.", "citations": []}
-
     
     citations = []
     for h in hits:
