@@ -22,6 +22,23 @@ Variables de entorno clave:
   MOCK_MODE                -> "1" para modo demo (no llama LLM)
 """
 # --- Embeddings de consulta con SentenceTransformers (mismo que el índice)
+# app/rag.py
+# -*- coding: utf-8 -*-
+
+import os, json, logging
+from io import BytesIO
+from typing import Any, Dict, List, Tuple, Optional
+
+import numpy as np
+import httpx
+
+# Embeddings locales con SentenceTransformers (mismo modelo que el índice)
+try:
+    from sentence_transformers import SentenceTransformer
+    _ST_AVAILABLE = True
+except Exception:
+    _ST_AVAILABLE = False
+
 try:
     from sentence_transformers import SentenceTransformer
     _ST_AVAILABLE = True
@@ -45,14 +62,6 @@ def embed_query_locally(text: str) -> np.ndarray:
 
 #from __future__ import annotations
 
-import json
-import os
-import logging
-from io import BytesIO
-from typing import Any, Dict, List, Tuple, Optional
-
-import numpy as np
-import httpx
 
 # OpenAI opcional (solo si vas a usar search_by_text)
 try:
