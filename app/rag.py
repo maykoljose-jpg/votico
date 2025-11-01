@@ -15,6 +15,13 @@ from typing import Any, Dict, List, Tuple, Optional
 import numpy as np
 import httpx
 
+from .rag import answer, check_openai_connectivity, index_stats  # <- agrega index_stats
+
+@app.get("/api/index-stats")
+async def api_index_stats():
+    return index_stats()
+
+
 # OpenAI SDK (nuevo). Lo tratamos como opcional para dar fallbacks amables.
 try:
     from openai import OpenAI
@@ -231,14 +238,15 @@ async def answer(query: str, top_k: int = None) -> Dict[str, Any]:
     if not hits:
         return {"answer": "Busqué en los planes y no vi propuestas relevantes sobre ese tema.", "citations": []}
 
+    
     citations = []
     for h in hits:
         md = h.get("metadata", {}) or {}
         citations.append({
-            "party":  str(md.get("party","")),
-            "title":  str(md.get("title","")),
-            "page":   md.get("page","")),
-            "source": str(md.get("source","")),
+            "party":  str(md.get("party", "")),
+            "title":  str(md.get("title", "")),
+            "page":   md.get("page", ""),
+            "source": str(md.get("source", "")),
             "score":  float(h.get("score", 0.0)),
         })
 
