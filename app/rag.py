@@ -31,6 +31,12 @@ from typing import Any, Dict, List, Tuple, Optional
 
 import numpy as np
 import httpx
+# OpenAI opcional (solo si vas a usar search_by_text)
+try:
+    from openai import OpenAI  # SDK nuevo
+    _OPENAI_AVAILABLE = True
+except Exception:  # pragma: no cover
+    _OPENAI_AVAILABLE = False
 
 # Embeddings locales con SentenceTransformers (mismo modelo que el índice)
 try:
