@@ -212,7 +212,9 @@ class RAGIndex:
         return results
 
     # -------- OpenAI helpers (opcional) --------
-    def _ensure_openai(self) -> OpenAI:
+    from typing import Any
+    def _ensure_openai(self) -> Any:
+
         if not _OPENAI_AVAILABLE:
             raise RuntimeError(
                 "Paquete 'openai' no disponible. Instala 'openai' o usa search_by_vector()."
