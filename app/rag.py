@@ -21,6 +21,27 @@ Variables de entorno clave:
   ANSWER_MAX_TOKENS        -> default: 600
   MOCK_MODE                -> "1" para modo demo (no llama LLM)
 """
+# --- Embeddings de consulta con SentenceTransformers (mismo que el índice)
+try:
+    from sentence_transformers import SentenceTransformer
+    _ST_AVAILABLE = True
+except Exception:
+    _ST_AVAILABLE = False
+
+_QUERY_MODEL = None
+def _get_query_model():
+    global _QUERY_MODEL
+    if _QUERY_MODEL is None:
+        name = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+        if not _ST_AVAILABLE:
+            raise RuntimeError("Falta sentence-transformers para embebidos de consulta.")
+        _QUERY_MODEL = SentenceTransformer(name)
+    return _QUERY_MODEL
+
+def embed_query_locally(text: str) -> np.ndarray:
+    model = _get_query_model()
+    v = model.encode([text], convert_to_numpy=True, normalize_embeddings=True)[0].astype(np.float32)
+    return v
 
 from __future__ import annotations
 
@@ -233,13 +254,16 @@ def get_index(force_reload: bool = False) -> RAGIndex:
 #  Facades de alto nivel
 # =========================
 
+
 def retrieve_by_text(query: str, top_k: int = 5) -> List[Dict[str, Any]]:
     """
-    Búsqueda rápida por texto. Requiere OPENAI_API_KEY.
+    Búsqueda rápida por texto usando el MISMO modelo que generó el índice.
     Retorna: [{score, metadata}, ...]
     """
     index = get_index()
-    return index.search_by_text(query, top_k=top_k)
+    # Embebido local (384 dims por defecto con all-MiniLM-L6-v2)
+    vec = embed_query_locally(query)
+    return index.search_by_vector(vec, top_k=top_k)
 
 
 def retrieve_by_vector(query_vec: List[float], top_k: int = 5) -> List[Dict[str, Any]]:
