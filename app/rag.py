@@ -43,7 +43,7 @@ def embed_query_locally(text: str) -> np.ndarray:
     v = model.encode([text], convert_to_numpy=True, normalize_embeddings=True)[0].astype(np.float32)
     return v
 
-from __future__ import annotations
+#from __future__ import annotations
 
 import json
 import os
