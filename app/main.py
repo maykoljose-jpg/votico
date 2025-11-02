@@ -1,16 +1,23 @@
+# app/main.py
 import os
-from fastapi import FastAPI, Request
+from datetime import datetime
+
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from jinja2 import Environment, FileSystemLoader, select_autoescape
-from datetime import datetime
 from pydantic import BaseModel
-from dotenv import load_dotenv, find_dotenv  # ← nuevo
-load_dotenv(find_dotenv())                   # ← nuevo
-from .rag import answer
+from dotenv import load_dotenv, find_dotenv
 
+# Cargar variables de entorno (.env) al iniciar
+load_dotenv(find_dotenv())
 
+# Importar SOLO una vez, y siempre al tope (evita imports circulares)
+from .rag import answer, check_openai_connectivity, index_stats
+
+import httpx
+import traceback
 
 app = FastAPI(title="Voto Informado CR")
 
@@ -28,7 +35,7 @@ def render_template(name: str, **context) -> HTMLResponse:
     html = template.render(**context)
     return HTMLResponse(content=html)
 
-# CORS (if serving frontend separately). Not required if same origin.
+# CORS (si el frontend está en otro dominio)
 origins = os.getenv("CORS_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
@@ -56,7 +63,6 @@ async def index(request: Request):
 
 @app.get("/partidos", response_class=HTMLResponse)
 async def partidos(request: Request, q: str | None = None):
-    # Siempre mostramos la lista completa; el "q" se usa para el chat en la vista
     items = PARTIDOS
     return render_template("partidos.html", year=datetime.now().year, partidos=items, q=q or "", request=request)
 
@@ -74,7 +80,6 @@ class ChatRequest(BaseModel):
 @app.get("/api/health")
 async def health():
     return {"ok": True}
-import httpx
 
 @app.get("/api/openai-echo")
 async def openai_echo():
@@ -102,8 +107,13 @@ async def openai_echo():
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
-from fastapi import HTTPException
-import traceback
+@app.get("/api/openai-check")
+async def openai_check():
+    return await check_openai_connectivity()
+
+@app.get("/api/index-stats")
+async def api_index_stats():
+    return index_stats()
 
 @app.post("/api/chat")
 async def chat(req: ChatRequest):
@@ -114,6 +124,7 @@ async def chat(req: ChatRequest):
         resp = await answer(q)
         if not isinstance(resp, dict):
             resp = {"answer": str(resp), "citations": []}
+
         # Normalizar citas
         cites = []
         for c in (resp.get("citations") or []):
@@ -125,7 +136,7 @@ async def chat(req: ChatRequest):
                     "source": str(c.get("source","")),
                     "score": float(c.get("score", 0.0)),
                 })
-            except:
+            except Exception:
                 continue
         resp["citations"] = cites
         resp["answer"] = str(resp.get("answer",""))
@@ -133,7 +144,6 @@ async def chat(req: ChatRequest):
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=502, detail=f"Chat backend error: {e}")
-
 
 @app.get("/api/debug-env")
 async def debug_env():
@@ -143,8 +153,3 @@ async def debug_env():
         "MOCK_MODE": os.getenv("MOCK_MODE"),
         "DATA_DIR": os.getenv("DATA_DIR"),
     }
-from .rag import check_openai_connectivity
-
-@app.get("/api/openai-check")
-async def openai_check():
-    return await check_openai_connectivity()
