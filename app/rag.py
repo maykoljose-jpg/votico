@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Tuple, Optional
 import numpy as np
 import httpx
 
-@app.get("/api/index-stats")
+
 async def api_index_stats():
     return index_stats()
 
