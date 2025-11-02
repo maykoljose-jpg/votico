@@ -15,8 +15,6 @@ from typing import Any, Dict, List, Tuple, Optional
 import numpy as np
 import httpx
 
-from .rag import answer, check_openai_connectivity, index_stats  # <- agrega index_stats
-
 @app.get("/api/index-stats")
 async def api_index_stats():
     return index_stats()
