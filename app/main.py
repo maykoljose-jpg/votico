@@ -155,4 +155,9 @@ async def debug_env():
         "R2_PUBLIC_BASE": os.getenv("R2_PUBLIC_BASE"),
         "INDEX_PREFIX": os.getenv("INDEX_PREFIX"),
     }
+@app.post("/api/index-reload")
+async def api_index_reload():
+    # Fuerza recargar desde R2 y devuelve las stats
+    get_index(force_reload=True)
+    return index_stats()
 
