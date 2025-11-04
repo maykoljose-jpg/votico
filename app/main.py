@@ -1,23 +1,20 @@
 # app/main.py
-import os
-from datetime import datetime
+import os, traceback, uuid
+from collections import deque, defaultdict
+from typing import Deque, Dict, List
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+from datetime import datetime
 from pydantic import BaseModel
 from dotenv import load_dotenv, find_dotenv
 
-# Cargar variables de entorno (.env) al iniciar
 load_dotenv(find_dotenv())
 
-# Importar SOLO una vez, y siempre al tope (evita imports circulares)
-from .rag import answer, check_openai_connectivity, index_stats
-
-import httpx
-import traceback
+from .rag import answer, check_openai_connectivity, index_stats  # noqa
 
 app = FastAPI(title="Voto Informado CR")
 
@@ -35,7 +32,7 @@ def render_template(name: str, **context) -> HTMLResponse:
     html = template.render(**context)
     return HTMLResponse(content=html)
 
-# CORS (si el frontend está en otro dominio)
+# CORS
 origins = os.getenv("CORS_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
@@ -53,6 +50,18 @@ PARTIDOS = [
     {"name": "Nueva República", "slug": "nueva-republica", "flag": "/static/assets/banderas/nueva-republica.svg"},
     {"name": "Acción Ciudadana (PAC)", "slug": "pac", "flag": "/static/assets/banderas/pac.svg"},
 ]
+
+# ========= Memoria por sesión =========
+MAX_TURNS = int(os.getenv("CHAT_MEMORY_MESSAGES", "5"))
+CHAT_MEMORY: Dict[str, Deque[Dict[str, str]]] = defaultdict(lambda: deque(maxlen=2*MAX_TURNS))
+# =====================================
+
+class ChatRequest(BaseModel):
+    query: str
+    session_id: str | None = None
+    use_memory: bool = True
+
+# ------------------- Páginas -------------------
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
@@ -74,76 +83,11 @@ async def contacto(request: Request):
 async def acerca(request: Request):
     return render_template("acerca.html", year=datetime.now().year, request=request)
 
-class ChatRequest(BaseModel):
-    query: str
+# ------------------- APIs util -------------------
 
 @app.get("/api/health")
 async def health():
     return {"ok": True}
-
-@app.get("/api/openai-echo")
-async def openai_echo():
-    api_key = os.getenv("OPENAI_API_KEY", "")
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    if not api_key:
-        return {"status": 400, "where": "env", "error": "Falta OPENAI_API_KEY en .env"}
-
-    url = "https://api.openai.com/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {api_key}"}
-    payload = {
-        "model": model,
-        "temperature": 0.0,
-        "messages": [
-            {"role": "system", "content": "Sos un asistente breve."},
-            {"role": "user", "content": "Decí 'ping' y nada más."}
-        ]
-    }
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            r = await client.post(url, headers=headers, json=payload)
-            return {"status": r.status_code, "body": r.text[:400]}
-    except httpx.TimeoutException:
-        return {"status": "timeout", "error": "Timeout conectando a api.openai.com"}
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
-
-@app.get("/api/openai-check")
-async def openai_check():
-    return await check_openai_connectivity()
-
-@app.get("/api/index-stats")
-async def api_index_stats():
-    return index_stats()
-
-@app.post("/api/chat")
-async def chat(req: ChatRequest):
-    try:
-        q = (req.query or "").strip()
-        if not q:
-            return {"answer": "Escribí una pregunta.", "citations": []}
-        resp = await answer(q)
-        if not isinstance(resp, dict):
-            resp = {"answer": str(resp), "citations": []}
-
-        # Normalizar citas
-        cites = []
-        for c in (resp.get("citations") or []):
-            try:
-                cites.append({
-                    "party": str(c.get("party","")),
-                    "title": str(c.get("title","")),
-                    "page": c.get("page",""),
-                    "source": str(c.get("source","")),
-                    "score": float(c.get("score", 0.0)),
-                })
-            except Exception:
-                continue
-        resp["citations"] = cites
-        resp["answer"] = str(resp.get("answer",""))
-        return resp
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=502, detail=f"Chat backend error: {e}")
 
 @app.get("/api/debug-env")
 async def debug_env():
@@ -155,9 +99,54 @@ async def debug_env():
         "R2_PUBLIC_BASE": os.getenv("R2_PUBLIC_BASE"),
         "INDEX_PREFIX": os.getenv("INDEX_PREFIX"),
     }
-@app.post("/api/index-reload")
-async def api_index_reload():
-    # Fuerza recargar desde R2 y devuelve las stats
-    get_index(force_reload=True)
+
+@app.get("/api/openai-check")
+async def openai_check():
+    return await check_openai_connectivity()
+
+@app.get("/api/index-stats")
+async def api_index_stats():
     return index_stats()
 
+# ------------------- Chat RAG -------------------
+
+@app.post("/api/chat")
+async def chat(req: ChatRequest):
+    try:
+        q = (req.query or "").strip()
+        if not q:
+            return {"answer": "Escribí una pregunta.", "citations": []}
+
+        sid = req.session_id or str(uuid.uuid4())
+        history = list(CHAT_MEMORY[sid]) if req.use_memory else None
+
+        resp = await answer(q, history=history)
+
+        if not isinstance(resp, dict):
+            resp = {"answer": str(resp), "citations": []}
+
+        cites = []
+        for c in (resp.get("citations") or []):
+            try:
+                cites.append({
+                    "party": str(c.get("party","")),
+                    "title": str(c.get("title","")),
+                    "page": c.get("page",""),
+                    "source": str(c.get("source","")),
+                    "score": float(c.get("score", 0.0)),
+                })
+            except:
+                continue
+        resp["citations"] = cites
+        resp["answer"] = str(resp.get("answer",""))
+
+        if req.use_memory and resp.get("answer"):
+            CHAT_MEMORY[sid].append({"role": "user", "content": q})
+            CHAT_MEMORY[sid].append({"role": "assistant", "content": resp["answer"]})
+
+        resp["session_id"] = sid
+        resp["turns_kept"] = len(CHAT_MEMORY[sid])
+        return resp
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=502, detail=f"Chat backend error: {e}")
