@@ -152,4 +152,7 @@ async def debug_env():
         "OPENAI_MODEL": os.getenv("OPENAI_MODEL"),
         "MOCK_MODE": os.getenv("MOCK_MODE"),
         "DATA_DIR": os.getenv("DATA_DIR"),
+        "R2_PUBLIC_BASE": os.getenv("R2_PUBLIC_BASE"),
+        "INDEX_PREFIX": os.getenv("INDEX_PREFIX"),
     }
+
