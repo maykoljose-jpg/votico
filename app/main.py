@@ -150,3 +150,10 @@ async def chat(req: ChatRequest):
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=502, detail=f"Chat backend error: {e}")
+
+from .rag import get_index, index_stats
+
+@app.post("/api/reload-index")
+def reload_index():
+    get_index(force_reload=True)
+    return {"ok": True, **index_stats()}
