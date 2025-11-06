@@ -1,121 +1,60 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Consulta sobre Partidos</title>
-  <link rel="icon" href="/static/assets/logo.svg" />
-  <link rel="stylesheet" href="/static/css/base.css" />
-  <style>
-    :root { --bg:#0f1115; --panel:#192033; --text:#e7ecf3; --muted:#9fb0c3; --accent:#7aa2ff; }
-    html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;}
-    a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
-    .wrap{max-width:980px;margin:32px auto;padding:0 16px}
-    .title{font-size:40px;font-weight:800;text-align:center;margin:0 0 28px}
-    .card{background:var(--panel);border-radius:12px;padding:18px 20px}
-    .row{display:flex;gap:12px;align-items:center}
-    .row input{flex:1;min-width:0;border:0;border-radius:9px;background:#121827;color:var(--text);padding:12px 14px;font-size:16px;outline:none}
-    .row button{border:0;border-radius:9px;background:var(--accent);color:#04111e;padding:12px 16px;font-weight:700;cursor:pointer}
-    .row button:disabled{opacity:.7;cursor:default}
-    h2{margin:26px 0 12px}
-    .answer{white-space:pre-wrap;line-height:1.5;background:#141a29;border-radius:10px;padding:14px;margin:10px 0 18px}
-    .sources{margin:6px 0 0 18px}
-    .muted{color:var(--muted);font-size:14px}
-    .footer{margin:36px 0 12px;text-align:center;color:var(--muted);font-size:13px}
-  </style>
+  <link rel="stylesheet" href="/static/css/styles.css" />
 </head>
-<body>
-  <div class="wrap">
-    <h1 class="title">Consulta sobre Partidos</h1>
+<body class="bg-slate-950 text-slate-100">
+  <header class="max-w-4xl mx-auto px-4 py-8">
+    <h1 class="text-3xl md:text-4xl font-extrabold text-center">
+      Consulta sobre Partidos
+    </h1>
+  </header>
 
-    <!-- Formulario de chat -->
-    <form id="chat-form" class="row" autocomplete="off">
-      <input id="chat-input" type="text" name="q" placeholder="Escribe tu consulta (p. ej., Salud mental)"
-             value="{{ q or '' }}" />
-      <button id="ask-btn" type="submit">Preguntar</button>
-    </form>
+  <main class="max-w-4xl mx-auto px-4 pb-28">
+    <!-- Contenedor de la conversación -->
+    <section id="thread"
+             class="space-y-6 overflow-y-auto scroll-smooth">
+      <!-- Si viene ?q=... se renderiza como primer “mensaje del usuario” por JS -->
+    </section>
 
-    <h2>Resultados para: <em>{{ (q or '').strip() or '—' }}</em></h2>
-
-    <!-- Respuesta -->
-    <div id="answer-box" class="answer">Escribí una pregunta y presioná “Preguntar”.</div>
-
-    <!-- Fuentes -->
-    <div class="card">
-      <strong>Fuentes:</strong>
-      <ul id="sources-list" class="sources muted"></ul>
-      <div class="muted" style="text-align:center;margin-top:14px;">[Espacio publicitario]</div>
-    </div>
-	
-	<!-- Primer bloque de publicidad -->
-<div style="text-align:center; margin-top: 30px;">
-  <ins class="adsbygoogle"
-       style="display:block"
-       data-ad-client="ca-pub-XXXXXXXXXXXXXXX"
-       data-ad-slot="1111111111"
-       data-ad-format="auto"
-       data-full-width-responsive="true"></ins>
-</div>
-
-<!-- Segundo bloque (al final del chat) -->
-<div style="text-align:center; margin-top: 50px;">
-  <ins class="adsbygoogle"
-       style="display:block"
-       data-ad-client="ca-pub-XXXXXXXXXXXXXXX"
-       data-ad-slot="2222222222"
-       data-ad-format="auto"
-       data-full-width-responsive="true"></ins>
-</div>
-
-<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script>
-<script>
-  (adsbygoogle = window.adsbygoogle || []).push({});
-</script>
-
-
-    <!-- (Opcional) grilla de partidos, por si quieres mostrar logos/lista -->
-    {% if partidos %}
-      <h2 style="margin-top:28px">Partidos</h2>
-      <div class="card">
-        <ul style="margin:0;padding-left:20px">
-          {% for p in partidos %}
-            <li>{{ p.name }}</li>
-          {% endfor %}
-        </ul>
+    <!-- slot de anuncios 1 (arriba del input, fijo en la página de repregunta) -->
+    <div class="my-8">
+      <div id="ads-slot-1" class="text-center text-slate-400 text-sm italic">
+        [Espacio publicitario]
       </div>
-    {% endif %}
+    </div>
+  </main>
 
-    <div class="footer">© {{ year }} — Voto Informado CR</div>
-  </div>
+  <!-- Input SIEMPRE al final, tipo “sticky” -->
+  <footer
+    class="fixed bottom-0 left-0 right-0 border-t border-slate-800 bg-slate-900/80 backdrop-blur-md">
+    <div class="max-w-4xl mx-auto px-4 py-4">
+      <form id="ask-form" class="flex gap-3">
+        <input id="q-input"
+               class="flex-1 rounded-xl bg-slate-800 text-slate-100 px-4 py-3 outline-none focus:ring-2 ring-indigo-500"
+               type="text"
+               placeholder="Escribe tu pregunta…"
+               autocomplete="off" />
+        <button id="ask-btn"
+                type="submit"
+                class="rounded-xl bg-indigo-600 hover:bg-indigo-500 px-5 py-3 font-semibold">
+          Preguntar
+        </button>
+      </form>
 
+      <!-- slot de anuncios 2 (entre input y borde) -->
+      <div class="mt-3">
+        <div id="ads-slot-2" class="text-center text-slate-400 text-sm italic">
+          [Espacio publicitario]
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- JS del chat (el que apila mensajes y no sobre-escribe) -->
   <script src="/static/js/chat.js"></script>
 </body>
 </html>
-<div id="chat-container" class="chat-box"></div>
-<form id="chat-form">
-  <input id="chat-input" placeholder="Escribe tu pregunta..." />
-  <button type="submit">Preguntar</button>
-</form>
-<head>
-  ...
-  <style>
-    .chat-box {
-      max-height: 600px;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      background: #1a1b20;
-      padding: 16px;
-      border-radius: 8px;
-    }
-    .msg.user {
-      color: #a0d7ff;
-      align-self: flex-end;
-    }
-    .msg.bot {
-      color: #e2e2e2;
-      align-self: flex-start;
-    }
-  </style>
-</head>
