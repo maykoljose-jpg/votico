@@ -46,6 +46,32 @@
       <ul id="sources-list" class="sources muted"></ul>
       <div class="muted" style="text-align:center;margin-top:14px;">[Espacio publicitario]</div>
     </div>
+	
+	<!-- Primer bloque de publicidad -->
+<div style="text-align:center; margin-top: 30px;">
+  <ins class="adsbygoogle"
+       style="display:block"
+       data-ad-client="ca-pub-XXXXXXXXXXXXXXX"
+       data-ad-slot="1111111111"
+       data-ad-format="auto"
+       data-full-width-responsive="true"></ins>
+</div>
+
+<!-- Segundo bloque (al final del chat) -->
+<div style="text-align:center; margin-top: 50px;">
+  <ins class="adsbygoogle"
+       style="display:block"
+       data-ad-client="ca-pub-XXXXXXXXXXXXXXX"
+       data-ad-slot="2222222222"
+       data-ad-format="auto"
+       data-full-width-responsive="true"></ins>
+</div>
+
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script>
+<script>
+  (adsbygoogle = window.adsbygoogle || []).push({});
+</script>
+
 
     <!-- (Opcional) grilla de partidos, por si quieres mostrar logos/lista -->
     {% if partidos %}
@@ -65,3 +91,31 @@
   <script src="/static/js/chat.js"></script>
 </body>
 </html>
+<div id="chat-container" class="chat-box"></div>
+<form id="chat-form">
+  <input id="chat-input" placeholder="Escribe tu pregunta..." />
+  <button type="submit">Preguntar</button>
+</form>
+<head>
+  ...
+  <style>
+    .chat-box {
+      max-height: 600px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      background: #1a1b20;
+      padding: 16px;
+      border-radius: 8px;
+    }
+    .msg.user {
+      color: #a0d7ff;
+      align-self: flex-end;
+    }
+    .msg.bot {
+      color: #e2e2e2;
+      align-self: flex-start;
+    }
+  </style>
+</head>

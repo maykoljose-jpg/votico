@@ -98,3 +98,38 @@ async function doAsk(question) {
     input.focus();
   }
 }
+// app/static/js/chat.js
+const chatForm = document.getElementById("chat-form");
+const chatInput = document.getElementById("chat-input");
+const chatContainer = document.getElementById("chat-container");
+
+chatForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const query = chatInput.value.trim();
+  if (!query) return;
+
+  // Agregar pregunta del usuario
+  appendMessage("user", query);
+  chatInput.value = "";
+
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query }),
+    });
+
+    const data = await res.json();
+    appendMessage("bot", data.answer || "No se encontró respuesta.");
+  } catch (err) {
+    appendMessage("bot", "⚠️ Error al conectar con el servidor.");
+  }
+});
+
+function appendMessage(sender, text) {
+  const msg = document.createElement("div");
+  msg.classList.add("msg", sender);
+  msg.textContent = text;
+  chatContainer.appendChild(msg);
+  chatContainer.scrollTop = chatContainer.scrollHeight;
+}
