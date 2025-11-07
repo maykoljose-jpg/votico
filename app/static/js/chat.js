@@ -1,135 +1,152 @@
 // app/static/js/chat.js
+(function () {
+  function start() {
+    const elThread = document.getElementById("thread");
+    const elForm = document.getElementById("ask-form");
+    const elInput = document.getElementById("q-input");
+    const elBtn = document.getElementById("ask-btn");
 
-// ===== Util: session id persistente en el navegador =====
-function getSessionId() {
-  try {
-    let sid = localStorage.getItem("votico_session_id");
-    if (!sid) {
-      sid = crypto.randomUUID();
-      localStorage.setItem("votico_session_id", sid);
-    }
-    return sid;
-  } catch (_) {
-    // fallback
-    return Math.random().toString(36).slice(2);
-  }
-}
-
-// ===== DOM refs =====
-const form = document.getElementById("chat-form");
-const input = document.getElementById("chat-input");
-const askBtn = document.getElementById("ask-btn");
-const answerBox = document.getElementById("answer-box");
-const sourcesList = document.getElementById("sources-list");
-
-function setLoading(state) {
-  if (state) {
-    askBtn.disabled = true;
-    askBtn.dataset.original = askBtn.textContent;
-    askBtn.textContent = "Pensando…";
-  } else {
-    askBtn.disabled = false;
-    askBtn.textContent = askBtn.dataset.original || "Preguntar";
-  }
-}
-
-function renderAnswer(text) {
-  if (!answerBox) return;
-  answerBox.textContent = "";
-  const p = document.createElement("p");
-  p.textContent = text;
-  answerBox.appendChild(p);
-}
-
-function renderSources(citations) {
-  if (!sourcesList) return;
-  sourcesList.innerHTML = "";
-  (citations || []).forEach((c) => {
-    const li = document.createElement("li");
-    const party = c.party || "desconocido";
-    const title = c.title || "—";
-    const page = c.page !== undefined && c.page !== null ? ` (p. ${c.page})` : "";
-    li.textContent = `${party} — ${title}${page}`;
-    sourcesList.appendChild(li);
-  });
-}
-
-// Submit por botón o Enter
-if (form) {
-  form.addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    const q = (input.value || "").trim();
-    if (!q) return;
-    await doAsk(q);
-  });
-}
-
-async function doAsk(question) {
-  try {
-    setLoading(true);
-    renderAnswer("…");
-    sourcesList.innerHTML = "";
-
-    const sid = getSessionId();
-    const resp = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        query: question,
-        session_id: sid,
-        use_memory: true
-      }),
-    });
-
-    const data = await resp.json();
-
-    if (!resp.ok) {
-      renderAnswer(data?.detail || "Hubo un error en el servidor.");
+    // Defensa: si algo no existe, no seguimos.
+    if (!elThread || !elForm || !elInput || !elBtn) {
+      console.error("[chat] Faltan nodos del DOM", { elThread, elForm, elInput, elBtn });
       return;
     }
 
-    renderAnswer(data.answer || "Sin respuesta");
-    renderSources(data.citations || []);
-  } catch (e) {
-    console.error(e);
-    renderAnswer("No se pudo conectar. Intentá de nuevo.");
-  } finally {
-    setLoading(false);
-    input.focus();
-  }
-}
-// app/static/js/chat.js
-const chatForm = document.getElementById("chat-form");
-const chatInput = document.getElementById("chat-input");
-const chatContainer = document.getElementById("chat-container");
+    const SESSION_KEY = "votico-thread";
+    const sessionId = (() => {
+      const k = "votico-session-id";
+      let v = sessionStorage.getItem(k);
+      if (!v) {
+        v = "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+        sessionStorage.setItem(k, v);
+      }
+      return v;
+    })();
 
-chatForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const query = chatInput.value.trim();
-  if (!query) return;
+    const qs = new URLSearchParams(location.search);
+    const initialQ = (qs.get("q") || "").trim();
 
-  // Agregar pregunta del usuario
-  appendMessage("user", query);
-  chatInput.value = "";
+    function saveThread() {
+      try {
+        const state = JSON.parse(localStorage.getItem(SESSION_KEY) || "{}");
+        state[sessionId] = elThread.innerHTML;
+        localStorage.setItem(SESSION_KEY, JSON.stringify(state));
+      } catch (e) { console.warn("[chat] saveThread", e); }
+    }
+    function restoreThread() {
+      try {
+        const state = JSON.parse(localStorage.getItem(SESSION_KEY) || "{}");
+        if (state[sessionId]) {
+          elThread.innerHTML = state[sessionId];
+          requestAnimationFrame(scrollToBottom);
+        }
+      } catch (e) { console.warn("[chat] restoreThread", e); }
+    }
+    function scrollToBottom() {
+      window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+    }
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, (m) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m])
+      );
+    }
+    function linkify(text) {
+      return text.replace(
+        /(https?:\/\/[^\s)]+)([)\s]?)/g,
+        '<a target="_blank" rel="noopener noreferrer" href="$1">$1</a>$2'
+      );
+    }
 
-  try {
-    const res = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query }),
+    function bubble(kind, html) {
+      const row = document.createElement("div");
+      row.className = "row " + kind; // user | bot
+      const bubble = document.createElement("div");
+      bubble.className = "bubble";
+      bubble.innerHTML = html;
+      row.appendChild(bubble);
+      elThread.appendChild(row);
+      return row;
+    }
+    function bubbleUser(text) {
+      return bubble("user", escapeHtml(text));
+    }
+    function bubbleAssistant(answer, citations) {
+      const citesHtml = (citations || [])
+        .map((c) => {
+          const party = c.party || "desconocido";
+          const title = c.title || "";
+          const page = c.page ? ` (p. ${c.page})` : "";
+          return `<li>${escapeHtml(party)} — ${escapeHtml(title)}${page}</li>`;
+        })
+        .join("");
+      const inner =
+        `<div>${linkify(escapeHtml(answer || ""))}</div>` +
+        (citesHtml ? `<div class="meta"><strong>Fuentes:</strong><ul>${citesHtml}</ul></div>` : "");
+      return bubble("bot", inner);
+    }
+    function bubbleLoader() {
+      return bubble("bot", `<span style="opacity:.85">Pensando…</span>`);
+    }
+
+    async function ask(query) {
+      if (!query) return;
+      try {
+        bubbleUser(query);
+        saveThread();
+        scrollToBottom();
+
+        const loader = bubbleLoader();
+        scrollToBottom();
+
+        const r = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query }),
+        });
+
+        let data = null;
+        try { data = await r.json(); } catch {}
+        loader.remove();
+
+        if (!r.ok) {
+          const msg = (data && (data.detail || data.error)) || "No pude procesar la pregunta.";
+          bubbleAssistant(msg, []);
+        } else {
+          bubbleAssistant(data?.answer || "(sin respuesta)", data?.citations || []);
+        }
+      } catch (e) {
+        console.error("[chat] ask error", e);
+        bubbleAssistant("Error de red. Intentalo de nuevo.", []);
+      } finally {
+        saveThread();
+        requestAnimationFrame(scrollToBottom);
+      }
+    }
+
+    // Manejo de submit
+    elForm.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      const q = elInput.value.trim();
+      if (!q) return;
+      elInput.value = "";
+      ask(q);
     });
 
-    const data = await res.json();
-    appendMessage("bot", data.answer || "No se encontró respuesta.");
-  } catch (err) {
-    appendMessage("bot", "⚠️ Error al conectar con el servidor.");
-  }
-});
+    restoreThread();
 
-function appendMessage(sender, text) {
-  const msg = document.createElement("div");
-  msg.classList.add("msg", sender);
-  msg.textContent = text;
-  chatContainer.appendChild(msg);
-  chatContainer.scrollTop = chatContainer.scrollHeight;
-}
+    // Si viene ?q= en la URL y no está ya en el hilo, la disparamos
+    if (initialQ) {
+      const already = elThread.textContent.includes(initialQ);
+      if (!already) ask(initialQ);
+    }
+
+    console.log("[chat] listo ✅");
+  }
+
+  // Esperar a que el DOM esté listo (evita que el form se envíe antes de atar eventos)
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", start);
+  } else {
+    start();
+  }
+})();
