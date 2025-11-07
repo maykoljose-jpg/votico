@@ -66,12 +66,27 @@
       .wrap{padding-left:12px; padding-right:12px}
       .bar{padding-left:12px; padding-right:12px}
     }
+		/* Botón Volver al inicio */
+	.back-home {
+	  display: inline-block;
+	  margin-top: 6px;
+	  font-size: 15px;
+	  color: var(--brand);
+	  text-decoration: none;
+	  transition: opacity .2s ease, color .2s ease;
+	}
+	.back-home:hover {
+	  color: #8790ff;
+	  opacity: 0.85;
+	}
+
   </style>
 </head>
 <body>
   <div class="wrap">
     <header>
       <h1>Consulta sobre Partidos</h1>
+	  <a href="/" class="back-home">← Volver al inicio</a>
     </header>
 
     <!-- slot de anuncios superior -->
