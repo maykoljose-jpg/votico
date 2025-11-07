@@ -79,6 +79,30 @@
 	  color: #8790ff;
 	  opacity: 0.85;
 	}
+	/* Botón flotante Volver al inicio */
+	.float-home {
+	  position: fixed;
+	  bottom: 92px;       /* queda justo encima del input fijo */
+	  right: 24px;
+	  width: 48px;
+	  height: 48px;
+	  display: flex;
+	  align-items: center;
+	  justify-content: center;
+	  background: linear-gradient(180deg, #6670ff, #4e59ff);
+	  color: white;
+	  font-size: 22px;
+	  border-radius: 50%;
+	  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+	  text-decoration: none;
+	  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+	  z-index: 999;
+	}
+	.float-home:hover {
+	  transform: scale(1.08);
+	  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+	  opacity: 0.9;
+	}
 
   </style>
 </head>
@@ -110,5 +134,8 @@
   </footer>
 
   <script src="/static/js/chat.js"></script>
+  <!-- Botón flotante "Volver al inicio" -->
+<a href="/" class="float-home" title="Volver al inicio">🏠</a>
+
 </body>
 </html>
