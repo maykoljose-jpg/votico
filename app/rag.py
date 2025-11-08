@@ -359,10 +359,10 @@ async def answer(query: str, top_k: int = None, history: Optional[List[Dict[str,
     for h in hits:
         md = h.get("metadata", {}) or {}
         citations.append({
-            "party":  str(md.get("party","")),
-            "title":  str(md.get("title","")),
-            "page":   md.get("page","")),
-            "source": str(md.get("source","")),
+            "party":  str(md.get("party", "")),
+            "title":  str(md.get("title", "")),
+            "page":   md.get("page", ""),
+            "source": str(md.get("source", "")),
             "score":  float(h.get("score", 0.0)),
         })
 
