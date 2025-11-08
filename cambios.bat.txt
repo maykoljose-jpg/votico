@@ -1,0 +1,48 @@
+@echo off
+title 🚀 Deploy Votico a Render
+color 0a
+echo ===========================================
+echo    VOTICO.CR — DEPLOY AUTOMATICO A RENDER
+echo ===========================================
+echo.
+
+:: Cambiar a la carpeta del proyecto
+cd /d "%~dp0"
+
+:: Verifica que sea un repo Git
+git rev-parse --is-inside-work-tree >nul 2>&1
+if %errorlevel% neq 0 (
+    echo ❌ No parece un repositorio Git.
+    pause
+    exit /b
+)
+
+:: Muestra cambios pendientes
+echo 🧩 Archivos modificados:
+git status -s
+echo.
+
+:: Agrega todos los cambios
+echo ➕ Agregando cambios...
+git add .
+
+:: Hace commit con fecha y hora automática
+for /f "tokens=1-4 delims=/ " %%a in ('date /t') do set FECHA=%%a-%%b-%%c
+for /f "tokens=1-2 delims=: " %%a in ('time /t') do set HORA=%%a%%b
+git commit -m "Deploy automático %FECHA%_%HORA%" >nul 2>&1
+
+:: Subir al repo
+echo ☁️ Subiendo a GitHub/Render...
+git push origin main
+
+:: Mensaje final
+if %errorlevel% equ 0 (
+    echo ✅ ¡Push exitoso!
+    echo 🕒 Ahora andá al dashboard de Render y hacé:
+    echo     Manual Deploy → Deploy latest commit
+) else (
+    echo ⚠️ Hubo un error al hacer push. Revisá tu conexión o credenciales.
+)
+
+echo.
+pause

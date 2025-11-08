@@ -124,22 +124,41 @@ img{max-width:100%;height:auto;display:block}
 .badge--idle{ background:#121524; color:#a9b0be; }
 .badge--ok{ background:#153a1a; color:#81f495; border-color:#1f6a29; }
 .badge--err{ background:#3a1515; color:#ffb3b3; border-color:#6a1f1f; }
-.ad-wrap {
+
+/* ==== Ads: compactos y sin altura forzada ==== */
+.ad-slot,
+.ad-wrap { 
   max-width: 1100px;
-  margin: 0 auto;
-  padding: 8px 12px 0;
+  margin: 10px auto 6px;   /* compacto */
+  padding: 0 12px;
+  background: transparent;
 }
+
+.ad-label,
 .ad-wrap .ad-label {
   display: inline-block;
   font-size: 12px;
+  line-height: 1;
   color: #9aa3b2;
-  margin-bottom: 6px;
-}
-.ad-wrap--top {
-  margin-top: 8px;
+  margin: 0 0 6px 2px;
 }
 
-/* Ayuda a que no rompa el layout en móviles */
+/* El <ins> de adsense no debe forzar alto */
+ins.adsbygoogle {
+  display: block !important;
+  height: auto !important;
+  min-height: 0 !important;
+}
+
+/* Quitar mínimos que agrandan tarjetas/anuncios */
+.party-card--ad { min-height: 0 !important; }
+
+/* Hero un poco más cerca del contenido */
+.hero { margin: 40px auto 14px; }
+
+/* Móvil: aún más compacto */
 @media (max-width: 640px) {
-  .ad-wrap { padding: 6px 10px 0; }
+  .ad-slot,
+  .ad-wrap { margin: 8px auto 4px; padding: 0 10px; }
+  .hero { margin: 32px auto 12px; }
 }
