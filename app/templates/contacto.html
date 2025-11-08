@@ -3,7 +3,20 @@
 {% block content %}
 <article class="page">
   <h1>Contáctanos</h1>
-  <form class="contact-form" id="contactForm">
+
+  <p>
+    ¿Comentarios, sugerencias o detectaste un error? Escribinos a
+    <a href="mailto:voticocr@gmail.com">voticocr@gmail.com</a>.
+  </p>
+
+  <div class="neutral-note" style="margin:1rem 0;padding:0.9rem 1rem;border:1px solid #2c3240;border-radius:10px;background:#111827;">
+    ⚖️ <strong>Importante:</strong> <em>Voto Informado CR no busca cambiar la intención de voto de nadie.</em>
+    Nuestro objetivo es brindar información basada en los <strong>planes de gobierno oficiales</strong> para
+    que cada persona decida de forma informada.
+  </div>
+
+  <!-- Podés dejar el formulario como opcional (demo) -->
+  <form class="contact-form" id="contactForm" aria-describedby="formHelp">
     <label>
       Nombre
       <input type="text" name="name" required autocomplete="name" />
@@ -17,13 +30,17 @@
       <textarea name="message" rows="6" required></textarea>
     </label>
     <button type="submit" class="btn-primary">Enviar</button>
-    <p class="form-hint">* Por ahora este formulario es de prueba (no envía). Integraremos el backend luego.</p>
+    <p id="formHelp" class="form-hint">
+      * Por ahora este formulario es de prueba (no envía). Integraremos el backend luego.
+      Si preferís, escribinos directo a <a href="mailto:voticocr@gmail.com">voticocr@gmail.com</a>.
+    </p>
   </form>
 </article>
+
 <script>
 document.getElementById('contactForm').addEventListener('submit', (e) => {
   e.preventDefault();
-  alert('¡Gracias! Tu mensaje sería enviado al backend cuando lo conectemos.');
+  alert('¡Gracias! Tu mensaje sería enviado al backend cuando lo conectemos. Mientras tanto, podés escribirnos a voticocr@gmail.com');
 });
 </script>
 {% endblock %}

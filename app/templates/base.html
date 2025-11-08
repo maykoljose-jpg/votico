@@ -19,12 +19,15 @@
 
   <!-- ✅ Semáforo de conexión OpenAI -->
   <script src="/static/js/openai-check.js"></script>
+  <meta name="description" content="Voto Informado CR — Sitio neutral que ayuda a comparar propuestas con base en planes de gobierno oficiales, sin influir en la intención de voto.">
+
 
   {% block head %}{% endblock %}
 </head>
 
 <body>
 <header class="site-header">
+
   <a class="brand" href="/">Voto Informado CR</a>
   <nav class="nav">
     <a href="/" {% if request.url.path == '/' %}aria-current="page"{% endif %}>Inicio</a>
@@ -40,7 +43,13 @@
 <main>{% block content %}{% endblock %}</main>
 
 <footer class="site-footer">
-  <small>© {{ year }} Voto Informado CR · Sitio informativo y neutral ·
+  <small>
+    © {{ year }} Voto Informado CR ·
+    Este sitio es <strong>completamente neutral</strong> y
+    <strong>no busca influir en la intención de voto</strong>.
+    Nuestro objetivo es brindar información basada en los planes de gobierno oficiales,
+    para que las personas decidan informadas. <br>
+    📩 Contacto: <a href="mailto:voticocr@gmail.com" class="footer-link">voticocr@gmail.com</a> ·
     <a href="/acerca" class="footer-link">Política editorial y publicidad</a>
   </small>
 </footer>
