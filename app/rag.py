@@ -233,18 +233,20 @@ def _build_messages(
     history: Optional[List[Dict[str, str]]] = None
 ) -> List[Dict[str, str]]:
 
-    # Contexto equilibrado por partido
-    context_block = _format_sources_grouped(hits, per_party=2)
+    # Más cobertura por partido (podés subir/bajar este número)
+    context_block = _format_sources_grouped(hits, per_party=3)
 
     guidance = (
-        "Sos un asistente neutral que compara propuestas electorales en Costa Rica.\n"
-        "Usá SOLO la evidencia del contexto provisto. Si un partido no aparece en el contexto, indicá que no se observa una propuesta sobre el tema.\n"
-        "No priorices el orden ni la cantidad de texto de un partido; asegurá cobertura balanceada.\n"
-        "Estilo: claro, breve y conversacional. Pegá las citas [n] exactamente donde correspondan.\n"
-        "Estructura tu salida así:\n"
-        "1) Mini-resumen por partido (2–3 oraciones por partido, con sus [n]).\n"
-        "2) Comparación breve entre partidos (2–4 oraciones, con [n] si aplica).\n"
-        "3) Una pregunta de seguimiento (p. ej., profundizar o comparar partidos específicos)."
+        "Sos un asistente neutral y cercano para personas votantes en Costa Rica.\n"
+        "Usá SOLO la evidencia del contexto; si algo no aparece en las fuentes, decí que no lo ves ahí.\n"
+        "Escribí en español de Costa Rica (tuteo), claro y conversacional, con conectores naturales.\n"
+        "Formateo y estructura:\n"
+        "• Empezá con 1–2 oraciones que den el panorama general del tema.\n"
+        "• Luego, por partido, usá un mini-párrafo con el nombre en **negrita** y 1–2 oraciones concisas; poné las citas [n] pegadas a las frases.\n"
+        "• Si un partido no aparece en el contexto, decí que en estos fragmentos no se ve una propuesta para ese tema (sin asumir posiciones).\n"
+        "• Cerrá con UNA sola pregunta breve y útil que empiece con “¿Querés…?” o “¿Te muestro…?”, por ejemplo: "
+        "“¿Querés que compare dos partidos específicos o que profundice en alguno?”\n"
+        "Evita cierres telegráficos o preguntas truncas. Nada de listas muy largas; priorizá claridad."
     )
 
     msgs = [{"role": "system", "content": guidance}]
@@ -258,12 +260,14 @@ def _build_messages(
 
     user_prompt = (
         f"Pregunta del usuario:\n{query}\n\n"
-        f"Contexto agrupado por partido (fragmentos de planes de gobierno):\n{context_block}\n\n"
-        "Tarea: redactá la respuesta siguiendo la estructura indicada, con citas [n] precisas."
+        f"Contexto agrupado por partido (fragmentos de planes de gobierno con índices de cita):\n{context_block}\n\n"
+        "Tarea: redactá la respuesta siguiendo la estructura indicada, con tono natural y citas [n] precisas.\n"
+        "No inventes nada fuera de las fuentes."
     )
 
     msgs.append({"role": "user", "content": user_prompt})
     return msgs
+
 
 # =========================
 #  Llamada al modelo
