@@ -136,6 +136,36 @@ class RAGIndex:
         return results
 
     # ---------- OpenAI helpers ----------
+    
+    from collections import defaultdict, Counter
+
+    def _rebalance_hits(hits: List[Dict[str, Any]], per_party: int = 2, max_total: int = 8) -> List[Dict[str, Any]]:
+    """Intercala hits por partido para evitar dominancia de uno solo."""
+    buckets = defaultdict(list)
+    order = []  # para recordar el orden de llegada de partidos
+    for h in hits:
+        md = h.get("metadata", {}) or {}
+        party = md.get("party") or "Desconocido"
+        if party not in buckets:
+            order.append(party)
+        if len(buckets[party]) < per_party:
+            buckets[party].append(h)
+
+    # round-robin por partido en el orden en que aparecieron
+    merged, i = [], 0
+    while len(merged) < max_total:
+        advanced = False
+        for p in order:
+            if i < len(buckets[p]):
+                merged.append(buckets[p][i])
+                if len(merged) >= max_total:
+                    break
+                advanced = True
+        if not advanced:
+            break
+        i += 1
+    return merged
+
     def _ensure_openai(self):
         if not _OPENAI_AVAILABLE:
             raise RuntimeError("Paquete 'openai' no disponible.")
@@ -154,6 +184,13 @@ class RAGIndex:
     def search_by_text(self, text: str, top_k: int = 5) -> List[Dict[str, Any]]:
         vec = self.embed_text(text)
         return self.search_by_vector(vec, top_k=top_k)
+    def _parties_in_hits(hits: List[Dict[str, Any]]) -> List[str]:
+    s = []
+    for h in hits:
+        p = (h.get("metadata") or {}).get("party") or "Desconocido"
+        if p not in s:
+            s.append(p)
+    return s
 
 # =========================
 #  Carga y caché del índice
@@ -226,47 +263,46 @@ def _format_sources_grouped(hits: List[Dict[str, Any]], per_party: int = 2) -> s
 #  Mensajes al LLM
 # =========================
 
-def _build_messages(
-    query: str,
-    hits: List[Dict[str, Any]],
-    style: str = "CONVERSATIONAL",
-    history: Optional[List[Dict[str, str]]] = None
-) -> List[Dict[str, str]]:
+    def _build_messages(query: str, hits: List[Dict[str, Any]], style: str = "CONVERSATIONAL",
+                    history: Optional[List[Dict[str, str]]] = None) -> List[Dict[str, str]]:
 
-    # Más cobertura por partido (podés subir/bajar este número)
-    context_block = _format_sources_grouped(hits, per_party=3)
+    context_block = _format_sources_grouped(hits, per_party=2)
+    parties = _parties_in_hits(hits)
+    multi = len(parties) >= 2
 
-    guidance = (
-        "Sos un asistente neutral y cercano para personas votantes en Costa Rica.\n"
-        "Usá SOLO la evidencia del contexto; si algo no aparece en las fuentes, decí que no lo ves ahí.\n"
-        "Escribí en español de Costa Rica (tuteo), claro y conversacional, con conectores naturales.\n"
-        "Formateo y estructura:\n"
-        "• Empezá con 1–2 oraciones que den el panorama general del tema.\n"
-        "• Luego, por partido, usá un mini-párrafo con el nombre en **negrita** y 1–2 oraciones concisas; poné las citas [n] pegadas a las frases.\n"
-        "• Si un partido no aparece en el contexto, decí que en estos fragmentos no se ve una propuesta para ese tema (sin asumir posiciones).\n"
-        "• Cerrá con UNA sola pregunta breve y útil que empiece con “¿Querés…?” o “¿Te muestro…?”, por ejemplo: "
-        "“¿Querés que compare dos partidos específicos o que profundice en alguno?”\n"
-        "Evita cierres telegráficos o preguntas truncas. Nada de listas muy largas; priorizá claridad."
+    guidance_multi = (
+        "Sos un asistente neutral que compara propuestas electorales en Costa Rica.\n"
+        "Usá SOLO la evidencia del contexto. No priorices el orden ni el volumen de ningún partido.\n"
+        "Estructura:\n"
+        "1) Mini-resumen por partido (2–3 oraciones c/u, con citas [n]).\n"
+        "2) Comparación breve entre partidos (2–4 oraciones, con [n] si aplica).\n"
+        "3) Pregunta de cierre NEUTRA (p. ej., «¿Querés que profundice o compare partidos específicos?»).\n"
+        "No formules la pregunta final nombrando un solo partido salvo que el usuario lo haya pedido explícitamente."
     )
 
-    msgs = [{"role": "system", "content": guidance}]
+    guidance_single = (
+        "Sos un asistente neutral. El contexto solo contiene fragmentos de UN partido.\n"
+        "Da un resumen breve (3–5 oraciones) con citas [n]. Indicá claramente que solo se halló ese partido.\n"
+        "No inventes comparaciones. Pregunta de cierre NEUTRA: «¿Busco si otros partidos tratan este tema o preferís profundizar en este?»."
+    )
 
+    guidance = guidance_multi if multi else guidance_single
+
+    msgs = [{"role": "system", "content": guidance}]
     if history:
         for m in history[-10:]:
-            r = m.get("role")
-            c = m.get("content", "")
+            r, c = m.get("role"), m.get("content", "")
             if r in ("user", "assistant") and c:
                 msgs.append({"role": r, "content": c})
 
     user_prompt = (
         f"Pregunta del usuario:\n{query}\n\n"
-        f"Contexto agrupado por partido (fragmentos de planes de gobierno con índices de cita):\n{context_block}\n\n"
-        "Tarea: redactá la respuesta siguiendo la estructura indicada, con tono natural y citas [n] precisas.\n"
-        "No inventes nada fuera de las fuentes."
+        f"Contexto (fragmentos agrupados por partido):\n{context_block}\n\n"
+        "Tarea: redactá la respuesta siguiendo la guía indicada y pegando citas [n] donde correspondan."
     )
-
     msgs.append({"role": "user", "content": user_prompt})
     return msgs
+
 
 
 # =========================
@@ -345,7 +381,8 @@ async def _general_explain(query: str, history: Optional[List[Dict[str, str]]] =
 
 async def answer(query: str, top_k: int = None, history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
     k = int(top_k or os.getenv("TOP_K", "6"))
-    hits = retrieve_by_text(query, top_k=k)
+    hits_raw = retrieve_by_text(query, top_k=k*2)  # traé más para poder balancear
+    hits = _rebalance_hits(hits_raw, per_party=2, max_total=k)
 
     # Si no hay matches en los planes -> modo educativo neutral
     if not hits:
