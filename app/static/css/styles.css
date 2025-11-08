@@ -124,3 +124,22 @@ img{max-width:100%;height:auto;display:block}
 .badge--idle{ background:#121524; color:#a9b0be; }
 .badge--ok{ background:#153a1a; color:#81f495; border-color:#1f6a29; }
 .badge--err{ background:#3a1515; color:#ffb3b3; border-color:#6a1f1f; }
+.ad-wrap {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 8px 12px 0;
+}
+.ad-wrap .ad-label {
+  display: inline-block;
+  font-size: 12px;
+  color: #9aa3b2;
+  margin-bottom: 6px;
+}
+.ad-wrap--top {
+  margin-top: 8px;
+}
+
+/* Ayuda a que no rompa el layout en móviles */
+@media (max-width: 640px) {
+  .ad-wrap { padding: 6px 10px 0; }
+}
