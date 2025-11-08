@@ -7,10 +7,17 @@
   <link rel="stylesheet" href="/static/css/styles.css" />
   <link rel="icon" href="/static/assets/logo.svg" />
 
-  <!-- AdSense (reemplazar Publisher ID y slots) -->
-  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXXXXXXXXX"
+  <!-- ✅ Google AdSense -->
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9028937165843951"
           crossorigin="anonymous"></script>
-  <!-- ✅ Nuevo script del semáforo -->
+  <script>
+    (adsbygoogle = window.adsbygoogle || []).push({
+      google_ad_client: "ca-pub-9028937165843951",
+      enable_page_level_ads: true
+    });
+  </script>
+
+  <!-- ✅ Semáforo de conexión OpenAI -->
   <script src="/static/js/openai-check.js"></script>
 
   {% block head %}{% endblock %}
