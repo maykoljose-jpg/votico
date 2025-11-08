@@ -1,15 +1,16 @@
 # app/rag.py
 # -*- coding: utf-8 -*-
 """
-RAG minimalista + respuesta conversacional:
+RAG minimalista + respuesta conversacional y neutral por partido:
 - Carga embeddings y metadata desde Cloudflare R2 (público) o del disco local.
-- Mantiene el índice en caché en memoria (normalizado) para similitud coseno.
-- Búsqueda por texto usando OpenAI embeddings (dim 1536) o por vector directo.
-- answer() con tono conversacional, citas [n], y soporte de historial.
+- Índice cacheado en memoria (normalizado) para similitud coseno.
+- Consulta por texto usando OpenAI embeddings (dim 1536) o por vector.
+- Contexto agrupado por partido para asegurar neutralidad.
+- answer() usa historial (opcional) y cita [n]; fallback educativo si no hay matches.
 
 Variables de entorno clave:
-  R2_PUBLIC_BASE           -> p.ej. https://pub-xxxxxxxxxxxxxxxxxxxxx.r2.dev
-  INDEX_PREFIX             -> p.ej. index-3
+  R2_PUBLIC_BASE           -> ej. https://pub-xxxxxxxxxxxxxxxxxxxxx.r2.dev
+  INDEX_PREFIX             -> ej. index-3
   OPENAI_API_KEY
   OPENAI_EMBED_MODEL       -> default: text-embedding-3-small (1536)
   OPENAI_MODEL             -> default: gpt-4o-mini
@@ -22,11 +23,12 @@ Variables de entorno clave:
 import os, json, logging
 from io import BytesIO
 from typing import Any, Dict, List, Tuple, Optional
+from collections import defaultdict
 
 import numpy as np
 import httpx
 
-# OpenAI SDK (para embeddings y chat)
+# OpenAI SDK (embeddings + chat)
 try:
     from openai import OpenAI
     _OPENAI_AVAILABLE = True
@@ -68,7 +70,7 @@ def _load_remote_index() -> Tuple[np.ndarray, List[Dict[str, Any]]]:
     meta_url = _join_public_url(base, prefix, "metadata.json")
     emb_url  = _join_public_url(base, prefix, "embeddings.npy")
 
-    metadata_bytes  = _fetch_bytes(meta_url)
+    metadata_bytes   = _fetch_bytes(meta_url)
     embeddings_bytes = _fetch_bytes(emb_url)
 
     metadata  = json.loads(metadata_bytes.decode("utf-8"))
@@ -178,7 +180,7 @@ def get_index(force_reload: bool = False) -> RAGIndex:
 # =========================
 
 def retrieve_by_text(query: str, top_k: int = 5) -> List[Dict[str, Any]]:
-    """Usa OpenAI embeddings para consultar (debe coincidir dimension con el índice)."""
+    """Usa OpenAI embeddings para consultar (dim debe coincidir con el índice)."""
     index = get_index()
     return index.search_by_text(query, top_k=top_k)
 
@@ -196,32 +198,55 @@ def top_k_context(query: str, top_k: int = 5, key_field: str = "text") -> List[s
     return ctx
 
 # =========================
-#  Conversational answer()
+#  Formateo de contexto (neutralidad)
 # =========================
 
-def _format_sources(hits: List[Dict[str, Any]]) -> str:
-    lines = []
+def _format_sources_grouped(hits: List[Dict[str, Any]], per_party: int = 2) -> str:
+    """
+    Arma el bloque de contexto agrupando por partido.
+    Toma hasta `per_party` fragmentos por partido y mantiene índices [n] según orden de hits.
+    """
+    grouped = defaultdict(list)
     for i, h in enumerate(hits, start=1):
         md = h.get("metadata", {}) or {}
-        party = md.get("party", "")
+        party = md.get("party") or "Desconocido"
         title = md.get("title", "")
         page  = md.get("page", "")
         src   = md.get("source", "")
         chunk = (md.get("chunk") or md.get("text") or md.get("content") or "").strip()
         snippet = chunk[:600].replace("\n", " ")
-        lines.append(f"[{i}] ({party}) {title} – pág. {page} – {src}\n>>> {snippet}")
-    return "\n\n".join(lines)
+        grouped[party].append(f"[{i}] {title} – pág. {page} – {src}\n>>> {snippet}")
 
-def _build_messages(query: str, hits: List[Dict[str, Any]], style: str = "CONVERSATIONAL",
-                    history: Optional[List[Dict[str, str]]] = None) -> List[Dict[str, str]]:
-    context_block = _format_sources(hits)
+    blocks = []
+    for party, entries in grouped.items():
+        blocks.append(f"### {party}\n" + "\n\n".join(entries[:per_party]))
+    return "\n\n".join(blocks)
+
+# =========================
+#  Mensajes al LLM
+# =========================
+
+def _build_messages(
+    query: str,
+    hits: List[Dict[str, Any]],
+    style: str = "CONVERSATIONAL",
+    history: Optional[List[Dict[str, str]]] = None
+) -> List[Dict[str, str]]:
+
+    # Contexto equilibrado por partido
+    context_block = _format_sources_grouped(hits, per_party=2)
+
     guidance = (
-        "Sos un asistente neutral para votar en Costa Rica.\n"
-        "Usá SOLO la evidencia del contexto. Si algo no está en las fuentes, decí que no aparece.\n"
-        "Estilo: claro, breve, conversacional; con citas [n] pegadas a las frases.\n"
-        "Si hay diferencias entre partidos, compáralas en 2–4 oraciones.\n"
-        "Cerrá con UNA pregunta de seguimiento."
+        "Sos un asistente neutral que compara propuestas electorales en Costa Rica.\n"
+        "Usá SOLO la evidencia del contexto provisto. Si un partido no aparece en el contexto, indicá que no se observa una propuesta sobre el tema.\n"
+        "No priorices el orden ni la cantidad de texto de un partido; asegurá cobertura balanceada.\n"
+        "Estilo: claro, breve y conversacional. Pegá las citas [n] exactamente donde correspondan.\n"
+        "Estructura tu salida así:\n"
+        "1) Mini-resumen por partido (2–3 oraciones por partido, con sus [n]).\n"
+        "2) Comparación breve entre partidos (2–4 oraciones, con [n] si aplica).\n"
+        "3) Una pregunta de seguimiento (p. ej., profundizar o comparar partidos específicos)."
     )
+
     msgs = [{"role": "system", "content": guidance}]
 
     if history:
@@ -233,11 +258,16 @@ def _build_messages(query: str, hits: List[Dict[str, Any]], style: str = "CONVER
 
     user_prompt = (
         f"Pregunta del usuario:\n{query}\n\n"
-        f"Contexto (fragmentos de planes de gobierno):\n{context_block}\n\n"
-        "Tarea: redactá una respuesta conversacional y precisa, con citas [n]."
+        f"Contexto agrupado por partido (fragmentos de planes de gobierno):\n{context_block}\n\n"
+        "Tarea: redactá la respuesta siguiendo la estructura indicada, con citas [n] precisas."
     )
+
     msgs.append({"role": "user", "content": user_prompt})
     return msgs
+
+# =========================
+#  Llamada al modelo
+# =========================
 
 async def _openai_chat(messages, model: str, temperature: float, max_tokens: int, api_key: str) -> str:
     url = "https://api.openai.com/v1/chat/completions"
@@ -249,29 +279,101 @@ async def _openai_chat(messages, model: str, temperature: float, max_tokens: int
         data = r.json()
         return data["choices"][0]["message"]["content"].strip()
 
+# =========================
+#  Fallback educativo si no hay matches
+# =========================
+
+async def _general_explain(query: str, history: Optional[List[Dict[str, str]]] = None) -> str:
+    """
+    Explicación neutral y educativa cuando el RAG no encuentra nada en los planes.
+    No infiere posturas de partidos. Cierra con una pregunta breve.
+    """
+    api_key = os.getenv("OPENAI_API_KEY", "")
+    if not api_key:
+        return ("No encontré el tema en los planes de gobierno. "
+                "Si querés, puedo explicarlo a nivel general y cómo suele relacionarse con políticas públicas en Costa Rica. "
+                "¿Querés que lo haga?")
+
+    msgs: List[Dict[str, str]] = [
+        {
+            "role": "system",
+            "content": (
+                "Sos un asistente neutral para Costa Rica. "
+                "Cuando el tema no aparece en los planes de gobierno, ofrecé una explicación general: "
+                "qué es, por qué importa, cómo suele abordarse en políticas públicas en CR, riesgos y consideraciones. "
+                "No infieras posturas de partidos. Sé claro en 6–9 oraciones. "
+                "Cerrá con una sola pregunta breve para continuar."
+            ),
+        }
+    ]
+
+    if history:
+        for turn in history[-6:]:
+            role = turn.get("role", "user")
+            content = turn.get("content", "")
+            if role in ("user", "assistant") and content:
+                msgs.append({"role": role, "content": content})
+
+    msgs.append({
+        "role": "user",
+        "content": (
+            f"Tema del usuario: {query}\n\n"
+            "Explica el concepto a nivel general en el contexto costarricense, de forma neutral, "
+            "sin recomendar partidos ni políticas específicas."
+        )
+    })
+
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    temperature = float(os.getenv("ANSWER_TEMPERATURE", "0.35"))
+    max_tokens = 300
+
+    try:
+        text = await _openai_chat(msgs, model, temperature, max_tokens, api_key)
+        return text.strip()
+    except Exception:
+        return ("No vi referencias al tema en los planes de gobierno. "
+                "Si te sirve, puedo darte una explicación general y cómo suele relacionarse con la política pública en CR. "
+                "¿Te explico en pocas palabras?")
+
+# =========================
+#  answer()
+# =========================
+
 async def answer(query: str, top_k: int = None, history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
     k = int(top_k or os.getenv("TOP_K", "6"))
     hits = retrieve_by_text(query, top_k=k)
-    if not hits:
-        return {"answer": "Busqué en los planes y no vi propuestas relevantes sobre ese tema.", "citations": []}
 
+    # Si no hay matches en los planes -> modo educativo neutral
+    if not hits:
+        general = await _general_explain(query, history=history)
+        return {
+            "answer": (
+                "En los planes de gobierno que revisamos no veo propuestas directas sobre este tema. "
+                + general
+            ),
+            "citations": []
+        }
+
+    # Citas (aunque el LLM falle)
     citations = []
     for h in hits:
         md = h.get("metadata", {}) or {}
         citations.append({
             "party":  str(md.get("party","")),
             "title":  str(md.get("title","")),
-            "page":   md.get("page",""),
+            "page":   md.get("page","")),
             "source": str(md.get("source","")),
             "score":  float(h.get("score", 0.0)),
         })
 
+    # Modo demo
     if os.getenv("MOCK_MODE", "0") == "1":
         return {
-            "answer": "Resumen breve y conversacional basado en los fragmentos recuperados [1][2]. ¿Querés que compare por partido?",
+            "answer": "Resumen comparativo breve basado en fragmentos agrupados por partido [1][2][3]. ¿Querés que profundice en alguno?",
             "citations": citations
         }
 
+    # OpenAI
     api_key = os.getenv("OPENAI_API_KEY", "")
     if not api_key:
         bullets = []
@@ -292,6 +394,7 @@ async def answer(query: str, top_k: int = None, history: Optional[List[Dict[str,
 
     try:
         text = await _openai_chat(messages, model, temperature, max_tokens, api_key)
+        return {"answer": text, "citations": citations}
     except Exception as e:
         logger.warning(f"Fallo al llamar OpenAI: {e}")
         bullets = []
@@ -304,8 +407,6 @@ async def answer(query: str, top_k: int = None, history: Optional[List[Dict[str,
                       "Resumen rápido:\n- " + "\n- ".join(bullets),
             "citations": citations
         }
-
-    return {"answer": text, "citations": citations}
 
 # =========================
 #  Diagnóstico / utilidades

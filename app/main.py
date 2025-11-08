@@ -1,20 +1,20 @@
 # app/main.py
-import os, traceback, uuid
-from collections import deque, defaultdict
-from typing import Deque, Dict, List
+# -*- coding: utf-8 -*-
+import os
+from datetime import datetime
+from typing import List, Optional, Literal
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from jinja2 import Environment, FileSystemLoader, select_autoescape
-from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, ValidationError
 from dotenv import load_dotenv, find_dotenv
+import httpx
 
+# Cargar .env local (Render también inyecta como vars de entorno)
 load_dotenv(find_dotenv())
-
-from .rag import answer, check_openai_connectivity, index_stats  # noqa
 
 app = FastAPI(title="Voto Informado CR")
 
@@ -36,12 +36,13 @@ def render_template(name: str, **context) -> HTMLResponse:
 origins = os.getenv("CORS_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=[o.strip() for o in origins],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# ---- Navegación/Pages ----
 PARTIDOS = [
     {"name": "Liberación Nacional (PLN)", "slug": "pln", "flag": "/static/assets/banderas/pln.svg"},
     {"name": "Unidad Social Cristiana (PUSC)", "slug": "pusc", "flag": "/static/assets/banderas/pusc.svg"},
@@ -50,18 +51,6 @@ PARTIDOS = [
     {"name": "Nueva República", "slug": "nueva-republica", "flag": "/static/assets/banderas/nueva-republica.svg"},
     {"name": "Acción Ciudadana (PAC)", "slug": "pac", "flag": "/static/assets/banderas/pac.svg"},
 ]
-
-# ========= Memoria por sesión =========
-MAX_TURNS = int(os.getenv("CHAT_MEMORY_MESSAGES", "5"))
-CHAT_MEMORY: Dict[str, Deque[Dict[str, str]]] = defaultdict(lambda: deque(maxlen=2*MAX_TURNS))
-# =====================================
-
-class ChatRequest(BaseModel):
-    query: str
-    session_id: str | None = None
-    use_memory: bool = True
-
-# ------------------- Páginas -------------------
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
@@ -72,8 +61,7 @@ async def index(request: Request):
 
 @app.get("/partidos", response_class=HTMLResponse)
 async def partidos(request: Request, q: str | None = None):
-    items = PARTIDOS
-    return render_template("partidos.html", year=datetime.now().year, partidos=items, q=q or "", request=request)
+    return render_template("partidos.html", year=datetime.now().year, partidos=PARTIDOS, q=q or "", request=request)
 
 @app.get("/contacto", response_class=HTMLResponse)
 async def contacto(request: Request):
@@ -83,8 +71,20 @@ async def contacto(request: Request):
 async def acerca(request: Request):
     return render_template("acerca.html", year=datetime.now().year, request=request)
 
-# ------------------- APIs util -------------------
+# ---- Modelos de API ----
+class ChatTurn(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1)
 
+class ChatRequest(BaseModel):
+    query: str = Field(min_length=1)
+    session_id: Optional[str] = None
+    history: Optional[List[ChatTurn]] = None  # historial opcional
+
+# Importamos después de crear 'app' para evitar import circular
+from .rag import answer, check_openai_connectivity, index_stats
+
+# ---- Endpoints utilitarios ----
 @app.get("/api/health")
 async def health():
     return {"ok": True}
@@ -108,23 +108,51 @@ async def openai_check():
 async def api_index_stats():
     return index_stats()
 
-# ------------------- Chat RAG -------------------
+# Echo simple a OpenAI (debug)
+@app.get("/api/openai-echo")
+async def openai_echo():
+    api_key = os.getenv("OPENAI_API_KEY", "")
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    if not api_key:
+        return {"status": 400, "where": "env", "error": "Falta OPENAI_API_KEY"}
+    url = "https://api.openai.com/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {api_key}"}
+    payload = {
+        "model": model,
+        "temperature": 0.0,
+        "messages": [
+            {"role": "system", "content": "Sos un asistente breve."},
+            {"role": "user", "content": "Decí 'ping' y nada más."}
+        ]
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.post(url, headers=headers, json=payload)
+            return {"status": r.status_code, "body": r.text[:400]}
+    except httpx.TimeoutException:
+        return {"status": "timeout", "error": "Timeout conectando a api.openai.com"}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
 
+# ---- Chat principal (con historial) ----
 @app.post("/api/chat")
 async def chat(req: ChatRequest):
     try:
         q = (req.query or "").strip()
         if not q:
-            return {"answer": "Escribí una pregunta.", "citations": []}
+            return {"answer": "Escribí una pregunta.", "citations": [], "session_id": req.session_id}
 
-        sid = req.session_id or str(uuid.uuid4())
-        history = list(CHAT_MEMORY[sid]) if req.use_memory else None
+        # Sanitizar/recortar historial (máx 10 turnos recientes)
+        history = []
+        if req.history:
+            for t in req.history[-10:]:
+                history.append({"role": t.role, "content": t.content})
 
         resp = await answer(q, history=history)
-
         if not isinstance(resp, dict):
             resp = {"answer": str(resp), "citations": []}
 
+        # Normalizar citas
         cites = []
         for c in (resp.get("citations") or []):
             try:
@@ -135,25 +163,16 @@ async def chat(req: ChatRequest):
                     "source": str(c.get("source","")),
                     "score": float(c.get("score", 0.0)),
                 })
-            except:
+            except Exception:
                 continue
-        resp["citations"] = cites
-        resp["answer"] = str(resp.get("answer",""))
 
-        if req.use_memory and resp.get("answer"):
-            CHAT_MEMORY[sid].append({"role": "user", "content": q})
-            CHAT_MEMORY[sid].append({"role": "assistant", "content": resp["answer"]})
+        return {
+            "answer": str(resp.get("answer","")),
+            "citations": cites,
+            "session_id": req.session_id,
+        }
 
-        resp["session_id"] = sid
-        resp["turns_kept"] = len(CHAT_MEMORY[sid])
-        return resp
+    except ValidationError as ve:
+        raise HTTPException(status_code=400, detail=ve.errors())
     except Exception as e:
-        traceback.print_exc()
         raise HTTPException(status_code=502, detail=f"Chat backend error: {e}")
-
-from .rag import get_index, index_stats
-
-@app.post("/api/reload-index")
-def reload_index():
-    get_index(force_reload=True)
-    return {"ok": True, **index_stats()}
