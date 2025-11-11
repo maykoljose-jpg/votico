@@ -31,6 +31,9 @@ import os, json, logging
 from io import BytesIO
 from typing import Any, Dict, List, Tuple, Optional
 from collections import defaultdict, Counter
+import os, json, logging
+from io import BytesIO
+from typing import Any, Dict, List, Tuple, Optional
 
 import numpy as np
 import httpx
@@ -47,6 +50,14 @@ try:
     _GEMINI_AVAILABLE = True
 except Exception:
     _GEMINI_AVAILABLE = False
+
+# OpenAI SDK (para embeddings y chat)
+try:
+    from openai import OpenAI
+    _OPENAI_AVAILABLE = True
+except Exception:
+    _OPENAI_AVAILABLE = False
+
 
 # ====== Logging ======
 logger = logging.getLogger("rag")
@@ -145,19 +156,22 @@ def _pick_provider_by_dim(dim: int) -> str:
 #   RAG Index
 # -------------
 class RAGIndex:
-    def __init__(self, embeddings: np.ndarray, metadata: List[Dict[str, Any]]):
-        if embeddings.ndim != 2:
-            raise ValueError("Embeddings debe ser 2D (N, D).")
-        if embeddings.shape[0] != len(metadata):
-            raise ValueError("metadata y embeddings desalineados.")
-        self._emb = embeddings.astype(np.float32, copy=False)
-        norms = np.linalg.norm(self._emb, axis=1, keepdims=True)
-        norms[norms == 0] = 1.0
-        self._emb = self._emb / norms
+   def __init__(self, embeddings: np.ndarray, metadata: List[Dict[str, Any]]):
+        ...
         self._meta = metadata
         self.dim = self._emb.shape[1]
-        self.provider = _pick_provider_by_dim(self.dim)
-        logger.info(f"RAGIndex cargado: {self._emb.shape[0]} vectores, dim={self.dim}, provider={self.provider}")
+
+        # NUEVO: detectar proveedor por la dimensión del índice
+        # 1536 -> OpenAI text-embedding-3-small
+        # 768  -> Gemini text-embedding-004
+        if self.dim == 1536:
+            self._provider = "openai"
+        elif self.dim == 768:
+            self._provider = "gemini"
+        else:
+            # Dim desconocida; forzá error explícito para que no haya mismatch silencioso
+            raise ValueError(f"Dimensión de índice no soportada: {self.dim}")
+        logger.info(f"RAGIndex cargado: {self._emb.shape[0]} vectores, dim={self.dim}, provider={self._provider}")
 
     @property
     def size(self) -> int:
@@ -178,15 +192,30 @@ class RAGIndex:
         return [{"score": float(sims[i]), "metadata": self._meta[i]} for i in idx]
 
     # --- embeddings de texto (elige proveedor según índice) ---
-    def embed_text(self, text: str) -> np.ndarray:
-        if self.provider == "gemini":
+   def embed_text(self, text: str) -> np.ndarray:
+        if self._provider == "openai":
+            # OpenAI
+            if not _OPENAI_AVAILABLE:
+                raise RuntimeError("Paquete 'openai' no disponible")
+            api_key = os.getenv("OPENAI_API_KEY", "").strip()
+            if not api_key:
+                raise RuntimeError("OPENAI_API_KEY no está definido.")
+            client = OpenAI(api_key=api_key)
+            model = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
+            resp = client.embeddings.create(model=model, input=text)
+            vec = np.array(resp.data[0].embedding, dtype=np.float32)
+
+        elif self._provider == "gemini":
+            # Gemini
             _ensure_gemini()
             model = os.getenv("GEMINI_EMBED_MODEL", "text-embedding-004")
             resp = genai.embed_content(model=model, content=text, task_type="RETRIEVAL_QUERY")
-            vec = np.asarray(resp["embedding"], dtype=np.float32)
-            if vec.shape[0] != self.dim:
-                raise RuntimeError(f"Embeddings Gemini dim={vec.shape[0]} no coincide con índice dim={self.dim}.")
-            return vec
+            vec = np.array(resp["embedding"], dtype=np.float32)
+
+        else:
+            raise RuntimeError(f"Proveedor no soportado: {self._provider}")
+
+        return vec
 
         # openai
         client = _ensure_openai()
