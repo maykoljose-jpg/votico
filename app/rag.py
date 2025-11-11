@@ -26,9 +26,29 @@ import os, json, logging
 from io import BytesIO
 from typing import Any, Dict, List, Tuple, Optional
 from collections import defaultdict, Counter
+import numpy as np
+import httpx
+import os, json, logging
+from io import BytesIO
+from typing import Any, Dict, List, Tuple, Optional
+from collections import defaultdict
 
 import numpy as np
 import httpx
+
+# OpenAI SDK (embeddings + chat)
+try:
+    from openai import OpenAI
+    _OPENAI_AVAILABLE = True
+except Exception:  # pragma: no cover
+    _OPENAI_AVAILABLE = False
+
+# ✅ Gemini SDK (opcional)
+try:
+    import google.generativeai as genai
+    _GEMINI_AVAILABLE = True
+except Exception:
+    _GEMINI_AVAILABLE = False
 
 # OpenAI SDK
 try:
@@ -132,11 +152,42 @@ class RAGIndex:
             raise RuntimeError("OPENAI_API_KEY no está definido.")
         return OpenAI(api_key=key)
 
-    def embed_text(self, text: str) -> np.ndarray:
-        client = self._ensure_openai()
+        def embed_text(self, text: str) -> np.ndarray:
+        """
+        Genera embeddings para la consulta usando el mismo proveedor que el índice.
+        - Si hay GEMINI_EMBED_MODEL + GOOGLE_API_KEY -> Gemini (dim=768).
+        - Si no, usa OpenAI con OPENAI_EMBED_MODEL (p.ej., 1536).
+        """
+        if _use_gemini():
+            _ensure_gemini()
+            gem_model = os.getenv("GEMINI_EMBED_MODEL", "text-embedding-004")
+            # task_type RETRIEVAL_QUERY mejora consultas
+            resp = genai.embed_content(
+                model=gem_model,
+                content=text,
+                task_type="RETRIEVAL_QUERY",
+            )
+            vec = np.asarray(resp["embedding"], dtype=np.float32)
+            return vec
+
+        # Fallback OpenAI
+        client = _ensure_openai()
         model = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
         resp = client.embeddings.create(model=model, input=text)
-        return np.array(resp.data[0].embedding, dtype=np.float32)
+        vec = np.array(resp.data[0].embedding, dtype=np.float32)
+        return vec
+
+
+    # Fallback: OpenAI (como ya tenías)
+    from openai import OpenAI
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("No GOOGLE_API_KEY ni OPENAI_API_KEY para hacer embeddings de consulta.")
+    client = OpenAI(api_key=api_key)
+    model = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
+    resp = client.embeddings.create(model=model, input=text)
+    vec = np.array(resp.data[0].embedding, dtype=np.float32)
+    return vec
 
     def search_by_text(self, text: str, top_k: int = 5) -> List[Dict[str, Any]]:
         vec = self.embed_text(text)
@@ -417,3 +468,24 @@ def index_stats() -> Dict[str, Any]:
     idx = get_index()
     parties = Counter([(m.get("party") or "desconocido") for m in getattr(idx, "_meta", [])])
     return {"vectors": idx.size, "dim": idx.dim, "parties": dict(parties)}
+def _use_gemini() -> bool:
+    """Decide si usar Gemini para embeddings (preferido si hay config)."""
+    gem_model = os.getenv("GEMINI_EMBED_MODEL", "").strip()
+    google_key = os.getenv("GOOGLE_API_KEY", "").strip()
+    return bool(gem_model and google_key and _GEMINI_AVAILABLE)
+
+def _ensure_openai():
+    if not _OPENAI_AVAILABLE:
+        raise RuntimeError("Paquete 'openai' no disponible.")
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY no está definido.")
+    return OpenAI(api_key=api_key)
+
+def _ensure_gemini():
+    if not _GEMINI_AVAILABLE:
+        raise RuntimeError("Paquete 'google-generativeai' no disponible.")
+    google_key = os.getenv("GOOGLE_API_KEY", "").strip()
+    if not google_key:
+        raise RuntimeError("GOOGLE_API_KEY no está definido.")
+    genai.configure(api_key=google_key)
