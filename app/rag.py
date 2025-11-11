@@ -1,62 +1,54 @@
-# app/rag.py
 # -*- coding: utf-8 -*-
 """
-RAG conversacional y neutral por partido:
-- Carga embeddings/metadata desde Cloudflare R2 o local.
-- Índice cacheado en memoria (coseno).
-- Recupera por texto con OpenAI embeddings (1536).
-- Agrupa contexto por partido para balancear la respuesta.
-- Si no hay evidencia en planes: ofrece explicación general y sugiere portales de Asamblea.
+RAG conversacional y neutral por partido (con autodetección de proveedor de embeddings).
+
+- Carga embeddings/metadata desde Cloudflare R2 o disco local.
+- Índice cacheado en memoria (similitud coseno).
+- Embeddings de consulta:
+    * AUTO: se decide por la dimensión del índice (1536=OpenAI, 768=Gemini)
+    * o fijo con EMBED_PROVIDER=openai|gemini
+- El contexto se agrupa por partido para balance.
+- Si no hay evidencia en planes: respuesta general (educativa) + sugerencia de portales Asamblea.
 
 Responde con:
-  - answer: texto conversacional
-  - citations: lista clásica (party, title, page, source, score)
-  - sources_inline: cita compacta (una línea)
-  - sources_more: lista compacta (para UI)
+  - answer (texto)
+  - citations (lista clásica)
+  - sources_inline (una línea compacta)
+  - sources_more (lista compacta para UI)
 
-Variables:
+ENV:
   R2_PUBLIC_BASE, INDEX_PREFIX
   OPENAI_API_KEY, OPENAI_EMBED_MODEL=text-embedding-3-small
   OPENAI_MODEL=gpt-4o-mini
+  GOOGLE_API_KEY, GEMINI_EMBED_MODEL=text-embedding-004
   TOP_K=6, ANSWER_TEMPERATURE=0.35, ANSWER_MAX_TOKENS=600
   MOCK_MODE="1" (demo)
+  EMBED_PROVIDER="auto|openai|gemini" (auto por defecto)
 """
 
+from __future__ import annotations
 import os, json, logging
 from io import BytesIO
 from typing import Any, Dict, List, Tuple, Optional
 from collections import defaultdict, Counter
-import numpy as np
-import httpx
-import os, json, logging
-from io import BytesIO
-from typing import Any, Dict, List, Tuple, Optional
-from collections import defaultdict
 
 import numpy as np
 import httpx
 
-# OpenAI SDK (embeddings + chat)
+# ====== SDKs opcionales ======
 try:
     from openai import OpenAI
     _OPENAI_AVAILABLE = True
-except Exception:  # pragma: no cover
+except Exception:
     _OPENAI_AVAILABLE = False
 
-# ✅ Gemini SDK (opcional)
 try:
     import google.generativeai as genai
     _GEMINI_AVAILABLE = True
 except Exception:
     _GEMINI_AVAILABLE = False
 
-# OpenAI SDK
-try:
-    from openai import OpenAI
-    _OPENAI_AVAILABLE = True
-except Exception:  # pragma: no cover
-    _OPENAI_AVAILABLE = False
-
+# ====== Logging ======
 logger = logging.getLogger("rag")
 if not logger.handlers:
     h = logging.StreamHandler()
@@ -64,10 +56,9 @@ if not logger.handlers:
     logger.addHandler(h)
 logger.setLevel(logging.INFO)
 
-# ----------------------------
-# Descarga índice (R2 o local)
-# ----------------------------
-
+# ---------------------------------------------------
+# Utilidades descarga índice (Cloudflare R2 / local)
+# ---------------------------------------------------
 def _join(base: str, *parts: str) -> str:
     base = base.rstrip("/")
     tail = "/".join(p.strip("/") for p in parts if p and p != "/")
@@ -109,10 +100,50 @@ def _load_local_index() -> Tuple[np.ndarray, List[Dict[str, Any]]]:
     embeddings = np.load(emb_path, allow_pickle=False)
     return embeddings, metadata
 
-# -------------
-#   RAGIndex
-# -------------
+# -----------------
+# Proveedor helpers
+# -----------------
+def _ensure_openai() -> OpenAI:
+    if not _OPENAI_AVAILABLE:
+        raise RuntimeError("Paquete 'openai' no disponible.")
+    key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not key:
+        raise RuntimeError("OPENAI_API_KEY no está definido.")
+    return OpenAI(api_key=key)
 
+def _ensure_gemini() -> None:
+    if not _GEMINI_AVAILABLE:
+        raise RuntimeError("Paquete 'google-generativeai' no disponible.")
+    key = os.getenv("GOOGLE_API_KEY", "").strip()
+    if not key:
+        raise RuntimeError("GOOGLE_API_KEY no está definido.")
+    genai.configure(api_key=key)
+
+def _pick_provider_by_dim(dim: int) -> str:
+    """
+    Si EMBED_PROVIDER=auto -> elegir por dimensión:
+      1536 => openai, 768 => gemini
+    Si EMBED_PROVIDER=openai|gemini -> respeta el override (y valida dimensión).
+    """
+    override = (os.getenv("EMBED_PROVIDER", "auto") or "auto").lower().strip()
+    if override in ("openai", "gemini"):
+        # Permitimos override; avisamos si dim no coincide (pero seguimos)
+        expected = 1536 if override == "openai" else 768
+        if dim != expected:
+            logger.warning(f"[RAG] EMBED_PROVIDER={override} pero el índice es dim={dim} (esperado {expected}). "
+                           f"Asegurate de reindexar con el mismo proveedor.")
+        return override
+
+    # auto
+    if dim == 1536:
+        return "openai"
+    if dim == 768:
+        return "gemini"
+    raise RuntimeError(f"No sé qué proveedor usar para índice con dim={dim}. Usa EMBED_PROVIDER=openai|gemini.")
+
+# -------------
+#   RAG Index
+# -------------
 class RAGIndex:
     def __init__(self, embeddings: np.ndarray, metadata: List[Dict[str, Any]]):
         if embeddings.ndim != 2:
@@ -125,13 +156,15 @@ class RAGIndex:
         self._emb = self._emb / norms
         self._meta = metadata
         self.dim = self._emb.shape[1]
-        logger.info(f"RAGIndex cargado: {self._emb.shape[0]} vectores, dim={self.dim}")
+        self.provider = _pick_provider_by_dim(self.dim)
+        logger.info(f"RAGIndex cargado: {self._emb.shape[0]} vectores, dim={self.dim}, provider={self.provider}")
 
     @property
     def size(self) -> int:
         return self._emb.shape[0]
 
-    def search_by_vector(self, query_vec: np.ndarray, top_k: int = 5) -> List[Dict[str, Any]]:
+    # --- búsqueda por vector ---
+    def search_by_vector(self, query_vec: np.ndarray, top_k: int = 6) -> List[Dict[str, Any]]:
         q = np.asarray(query_vec, dtype=np.float32)
         if q.ndim != 1:
             raise ValueError("query_vec debe ser 1D")
@@ -144,55 +177,33 @@ class RAGIndex:
         idx = idx[np.argsort(-sims[idx])]
         return [{"score": float(sims[i]), "metadata": self._meta[i]} for i in idx]
 
-    def _ensure_openai(self) -> OpenAI:
-        if not _OPENAI_AVAILABLE:
-            raise RuntimeError("Paquete 'openai' no disponible.")
-        key = os.getenv("OPENAI_API_KEY", "").strip()
-        if not key:
-            raise RuntimeError("OPENAI_API_KEY no está definido.")
-        return OpenAI(api_key=key)
-
-        def embed_text(self, text: str) -> np.ndarray:
-        """
-        Genera embeddings para la consulta usando el mismo proveedor que el índice.
-        - Si hay GEMINI_EMBED_MODEL + GOOGLE_API_KEY -> Gemini (dim=768).
-        - Si no, usa OpenAI con OPENAI_EMBED_MODEL (p.ej., 1536).
-        """
-        if _use_gemini():
+    # --- embeddings de texto (elige proveedor según índice) ---
+    def embed_text(self, text: str) -> np.ndarray:
+        if self.provider == "gemini":
             _ensure_gemini()
-            gem_model = os.getenv("GEMINI_EMBED_MODEL", "text-embedding-004")
-            # task_type RETRIEVAL_QUERY mejora consultas
-            resp = genai.embed_content(
-                model=gem_model,
-                content=text,
-                task_type="RETRIEVAL_QUERY",
-            )
+            model = os.getenv("GEMINI_EMBED_MODEL", "text-embedding-004")
+            resp = genai.embed_content(model=model, content=text, task_type="RETRIEVAL_QUERY")
             vec = np.asarray(resp["embedding"], dtype=np.float32)
+            if vec.shape[0] != self.dim:
+                raise RuntimeError(f"Embeddings Gemini dim={vec.shape[0]} no coincide con índice dim={self.dim}.")
             return vec
 
-        # Fallback OpenAI
+        # openai
         client = _ensure_openai()
         model = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
         resp = client.embeddings.create(model=model, input=text)
         vec = np.array(resp.data[0].embedding, dtype=np.float32)
+        if vec.shape[0] != self.dim:
+            raise RuntimeError(f"Embeddings OpenAI dim={vec.shape[0]} no coincide con índice dim={self.dim}.")
         return vec
 
-
-    # Fallback: OpenAI (como ya tenías)
-    from openai import OpenAI
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    if not api_key:
-        raise RuntimeError("No GOOGLE_API_KEY ni OPENAI_API_KEY para hacer embeddings de consulta.")
-    client = OpenAI(api_key=api_key)
-    model = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
-    resp = client.embeddings.create(model=model, input=text)
-    vec = np.array(resp.data[0].embedding, dtype=np.float32)
-    return vec
-
-    def search_by_text(self, text: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    def search_by_text(self, text: str, top_k: int = 6) -> List[Dict[str, Any]]:
         vec = self.embed_text(text)
         return self.search_by_vector(vec, top_k=top_k)
 
+# ---------------
+# Carga en caché
+# ---------------
 _INDEX: Optional[RAGIndex] = None
 
 def get_index(force_reload: bool = False) -> RAGIndex:
@@ -209,10 +220,9 @@ def get_index(force_reload: bool = False) -> RAGIndex:
     _INDEX = RAGIndex(embeddings=emb, metadata=meta)
     return _INDEX
 
-# ----------------
-# Facades simples
-# ----------------
-
+# -------------
+# Facades
+# -------------
 def retrieve_by_text(query: str, top_k: int = 6) -> List[Dict[str, Any]]:
     return get_index().search_by_text(query, top_k=top_k)
 
@@ -228,12 +238,13 @@ def top_k_context(query: str, top_k: int = 6, key_field: str = "text") -> List[s
         out.append(md.get(key_field) or md.get("chunk") or md.get("content") or "")
     return out
 
-# ---------------------------
-# Formato de contexto/citas
-# ---------------------------
-
+# -----------------------
+# Formato de contexto y citas
+# -----------------------
 def _format_sources_grouped(hits: List[Dict[str, Any]], per_party: int = 2) -> str:
-    """Bloque de contexto agrupado por partido (máx per_party por partido)."""
+    """
+    Bloque de contexto agrupado por partido (máx per_party por partido).
+    """
     grouped = defaultdict(list)
     for i, h in enumerate(hits, start=1):
         md = h.get("metadata", {}) or {}
@@ -244,13 +255,16 @@ def _format_sources_grouped(hits: List[Dict[str, Any]], per_party: int = 2) -> s
         chunk = (md.get("chunk") or md.get("text") or md.get("content") or "").strip()
         snippet = chunk[:600].replace("\n", " ")
         grouped[party].append(f"[{i}] {title} – pág. {page} – {src}\n>>> {snippet}")
+
     blocks = []
     for party, entries in grouped.items():
         blocks.append(f"### {party}\n" + "\n\n".join(entries[:per_party]))
     return "\n\n".join(blocks)
 
 def _citations_compact(hits: List[Dict[str, Any]]) -> Tuple[str, List[str]]:
-    """Devuelve (sources_inline, sources_more)."""
+    """
+    Devuelve (sources_inline, sources_more) en formato compacto.
+    """
     items = []
     inline_parts = []
     for i, h in enumerate(hits, start=1):
@@ -258,13 +272,10 @@ def _citations_compact(hits: List[Dict[str, Any]]) -> Tuple[str, List[str]]:
         party = (md.get("party") or "desconocido").strip()
         title = (md.get("title") or "").strip()
         page  = md.get("page", "")
-        src   = (md.get("source") or "").strip()
-        # lista compacta
         items.append(f"[{i}] {party} — {title} (p. {page})")
-        # línea súper compacta
         short = f"{party} (p. {page})" if page != "" else party
         inline_parts.append(short)
-    # deduplicar inline manteniendo orden
+
     seen = set()
     inline = []
     for p in inline_parts:
@@ -277,8 +288,8 @@ def _citations_compact(hits: List[Dict[str, Any]]) -> Tuple[str, List[str]]:
 # ----------------
 # Mensajes al LLM
 # ----------------
-
-def _build_messages(query: str, hits: List[Dict[str, Any]], history: Optional[List[Dict[str, str]]] = None) -> List[Dict[str, str]]:
+def _build_messages(query: str, hits: List[Dict[str, Any]],
+                    history: Optional[List[Dict[str, str]]] = None) -> List[Dict[str, str]]:
     context_block = _format_sources_grouped(hits, per_party=2)
     guidance = (
         "Sos un asistente neutral que compara propuestas de partidos en Costa Rica.\n"
@@ -287,15 +298,17 @@ def _build_messages(query: str, hits: List[Dict[str, Any]], history: Optional[Li
         "Estructura sugerida (adaptala si hace falta):\n"
         "• Mini-resumen por partido (2–3 oraciones por partido) con citas [n] pegadas a las frases.\n"
         "• Una comparación breve (2–4 oraciones) con [n] si aplica.\n"
-        "• Cierre con una pregunta útil y específica para continuar (p. ej., comparar dos partidos, pedir un enfoque o una zona concreta).\n"
+        "• Cerrá con UNA pregunta útil y específica (comparar dos partidos, pedir enfoque, región, etc.)."
     )
     msgs = [{"role": "system", "content": guidance}]
+
     if history:
         for m in history[-10:]:
             r = m.get("role")
             c = m.get("content", "")
             if r in ("user", "assistant") and c:
                 msgs.append({"role": r, "content": c})
+
     user = (
         f"Consulta: {query}\n\n"
         f"Contexto (fragmentos agrupados por partido):\n{context_block}\n\n"
@@ -317,7 +330,6 @@ async def _openai_chat(messages, model: str, temperature: float, max_tokens: int
 # ----------------------------------
 # Fallback: explicación general
 # ----------------------------------
-
 async def _general_explain(query: str, history: Optional[List[Dict[str, str]]] = None) -> str:
     api_key = os.getenv("OPENAI_API_KEY", "")
     if not api_key:
@@ -327,12 +339,13 @@ async def _general_explain(query: str, history: Optional[List[Dict[str, str]]] =
             "También, es posible buscar información en los portales de la Asamblea Legislativa: "
             "‘Consultas SIL’ o ‘Consulta de Proyectos’. ¿Querés que te oriente?"
         )
+
     msgs: List[Dict[str, str]] = [
         {"role": "system",
          "content": (
-            "Sos un asistente neutral para Costa Rica. Cuando no hay evidencia en planes de gobierno, "
-            "dá una explicación general (6–8 oraciones) de qué es, por qué importa y cómo suele abordarse en política pública en CR. "
-            "No infieras posturas de partidos. Cerrá con una pregunta concreta para avanzar."
+             "Sos un asistente neutral para Costa Rica. Cuando no hay evidencia en planes de gobierno, "
+             "dá una explicación general (6–8 oraciones) de qué es, por qué importa y cómo suele abordarse en política pública en CR. "
+             "No infieras posturas de partidos. Cerrá con una pregunta concreta para avanzar."
          )}]
     if history:
         for t in history[-6:]:
@@ -340,13 +353,15 @@ async def _general_explain(query: str, history: Optional[List[Dict[str, str]]] =
             content = t.get("content", "")
             if role in ("user", "assistant") and content:
                 msgs.append({"role": role, "content": content})
+
     msgs.append({"role": "user",
                  "content": (
-                    f"Tema del usuario: {query}\n"
-                    "Dá la explicación general. Podés sugerir revisar los sitios de la Asamblea Legislativa: "
-                    "https://www.asamblea.go.cr/Centro_de_informacion/Consultas_SIL/SitePages/SIL.aspx y "
-                    "https://www.asamblea.go.cr/Centro_de_informacion/Consultas_SIL/SitePages/ConsultaProyectos.aspx"
+                     f"Tema del usuario: {query}\n"
+                     "Dá la explicación general. Podés sugerir revisar los sitios de la Asamblea Legislativa: "
+                     "https://www.asamblea.go.cr/Centro_de_informacion/Consultas_SIL/SitePages/SIL.aspx y "
+                     "https://www.asamblea.go.cr/Centro_de_informacion/Consultas_SIL/SitePages/ConsultaProyectos.aspx"
                  )})
+
     model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     temp = float(os.getenv("ANSWER_TEMPERATURE", "0.35"))
     try:
@@ -362,7 +377,6 @@ async def _general_explain(query: str, history: Optional[List[Dict[str, str]]] =
 # -------------
 #   answer()
 # -------------
-
 async def answer(query: str, top_k: int = None, history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
     k = int(top_k or os.getenv("TOP_K", "6"))
     hits = retrieve_by_text(query, top_k=k)
@@ -376,10 +390,8 @@ async def answer(query: str, top_k: int = None, history: Optional[List[Dict[str,
             "sources_more": []
         }
 
-    # compact citations (para UI)
     sources_inline, sources_more = _citations_compact(hits)
 
-    # lista clásica por compatibilidad
     citations = []
     for h in hits:
         md = h.get("metadata", {}) or {}
@@ -391,12 +403,11 @@ async def answer(query: str, top_k: int = None, history: Optional[List[Dict[str,
             "score":  float(h.get("score", 0.0)),
         })
 
-    # Demo
     if os.getenv("MOCK_MODE", "0") == "1":
         return {
             "answer": (
-                "Te dejo un panorama corto por partido con base en los fragmentos más cercanos [1][2][3]. "
-                "Si querés, comparo dos partidos o profundizo en un tema específico."
+                "Te dejo un panorama por partido basado en los fragmentos más cercanos [1][2][3]. "
+                "Si querés, comparo dos partidos o profundizo en un punto."
             ),
             "citations": citations,
             "sources_inline": sources_inline,
@@ -449,7 +460,6 @@ async def answer(query: str, top_k: int = None, history: Optional[List[Dict[str,
 # -----------------------
 #   Salud / estadísticas
 # -----------------------
-
 async def check_openai_connectivity() -> Dict[str, Any]:
     key = os.getenv("OPENAI_API_KEY", "")
     model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
@@ -468,24 +478,3 @@ def index_stats() -> Dict[str, Any]:
     idx = get_index()
     parties = Counter([(m.get("party") or "desconocido") for m in getattr(idx, "_meta", [])])
     return {"vectors": idx.size, "dim": idx.dim, "parties": dict(parties)}
-def _use_gemini() -> bool:
-    """Decide si usar Gemini para embeddings (preferido si hay config)."""
-    gem_model = os.getenv("GEMINI_EMBED_MODEL", "").strip()
-    google_key = os.getenv("GOOGLE_API_KEY", "").strip()
-    return bool(gem_model and google_key and _GEMINI_AVAILABLE)
-
-def _ensure_openai():
-    if not _OPENAI_AVAILABLE:
-        raise RuntimeError("Paquete 'openai' no disponible.")
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    if not api_key:
-        raise RuntimeError("OPENAI_API_KEY no está definido.")
-    return OpenAI(api_key=api_key)
-
-def _ensure_gemini():
-    if not _GEMINI_AVAILABLE:
-        raise RuntimeError("Paquete 'google-generativeai' no disponible.")
-    google_key = os.getenv("GOOGLE_API_KEY", "").strip()
-    if not google_key:
-        raise RuntimeError("GOOGLE_API_KEY no está definido.")
-    genai.configure(api_key=google_key)
