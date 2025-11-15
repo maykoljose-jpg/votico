@@ -54,9 +54,6 @@
     <a href="/partidos" {% if request.url.path.startswith('/partidos') %}aria-current="page"{% endif %}>Partidos y sus planes</a>
     <a href="/contacto" {% if request.url.path.startswith('/contacto') %}aria-current="page"{% endif %}>Contáctanos</a>
     <a href="/acerca" {% if request.url.path.startswith('/acerca') %}aria-current="page"{% endif %}>Acerca</a>
-	<button id="btn-openai-check" class="badge-check" title="Probar conexión con OpenAI">Probar conexión</button>
-	<span id="badge-openai" class="badge badge--idle" aria-live="polite">Estado: desconocido</span>
-
   </nav>
 </header>
 

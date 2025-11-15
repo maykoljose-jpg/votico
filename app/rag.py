@@ -117,7 +117,7 @@ class RAGIndex:
             raise RuntimeError("Falta GOOGLE_API_KEY")
         genai.configure(api_key=api_key)
 
-        model = os.getenv("GEMINI_EMBED_MODEL", "text-embedding-004")
+        model = os.getenv("GEMINI_EMBED_MODEL", "models/text-embedding-004")
         resp = genai.embed_content(model=model, content=text)
 
         vec: Optional[np.ndarray] = None
