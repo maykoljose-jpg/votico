@@ -36,9 +36,29 @@
 </script>
 
 
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>{% block title %}Voto Informado CR{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/styles.css" />
+  <link rel="icon" href="/static/assets/logo.svg" />
+
+  <!-- ✅ Google AdSense -->
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9028937165843951"
+          crossorigin="anonymous"></script>
+
+  <!-- ✅ Semáforo de conexión OpenAI -->
+  <script src="/static/js/openai-check.js"></script>
+
+  <meta name="description" content="Voto Informado CR — Sitio neutral que ayuda a comparar propuestas con base en planes de gobierno oficiales, sin influir en la intención de voto.">
+
+  {% block head %}{% endblock %}
+</head>
+
 <body>
 <header class="site-header">
-
   <a class="brand" href="/">Voto Informado CR</a>
   <nav class="nav">
     <a href="/" {% if request.url.path == '/' %}aria-current="page"{% endif %}>Inicio</a>
@@ -46,7 +66,6 @@
     <a href="/contacto" {% if request.url.path.startswith('/contacto') %}aria-current="page"{% endif %}>Contáctanos</a>
     <a href="/acerca" {% if request.url.path.startswith('/acerca') %}aria-current="page"{% endif %}>Acerca</a>
   </nav>
-</header>
 </header>
 
 <!-- Publicidad: debajo del header -->
@@ -63,7 +82,6 @@
   (adsbygoogle = window.adsbygoogle || []).push({});
 </script>
 
-
 <main>{% block content %}{% endblock %}</main>
 
 <footer class="site-footer">
@@ -79,3 +97,4 @@
 </footer>
 </body>
 </html>
+
