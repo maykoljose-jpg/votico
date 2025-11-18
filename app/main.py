@@ -71,6 +71,20 @@ async def contacto(request: Request):
 async def acerca(request: Request):
     return render_template("acerca.html", year=datetime.now().year, request=request)
 
+@app.get("/sitemap.xml", include_in_schema=False)
+async def sitemap():
+    base = "https://votoinformadocr.onrender.com"  # cámbialo a tu dominio final cuando lo tengas
+    xml = f"""
+    <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+        <url><loc>{base}/</loc></url>
+        <url><loc>{base}/partidos</loc></url>
+        <url><loc>{base}/contacto</loc></url>
+        <url><loc>{base}/acerca</loc></url>
+    </urlset>
+    """
+    return Response(content=xml.strip(), media_type="application/xml")
+
+
 # ---- Modelos de API ----
 class ChatTurn(BaseModel):
     role: Literal["user", "assistant"]
