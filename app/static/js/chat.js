@@ -33,6 +33,7 @@
         localStorage.setItem(SESSION_KEY, JSON.stringify(state));
       } catch (e) { console.warn("[chat] saveThread", e); }
     }
+
     function restoreThread() {
       try {
         const state = JSON.parse(localStorage.getItem(SESSION_KEY) || "{}");
@@ -42,14 +43,17 @@
         }
       } catch (e) { console.warn("[chat] restoreThread", e); }
     }
+
     function scrollToBottom() {
       window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
     }
+
     function escapeHtml(s) {
       return String(s).replace(/[&<>"']/g, (m) =>
         ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m])
       );
     }
+
     function linkify(text) {
       return text.replace(
         /(https?:\/\/[^\s)]+)([)\s]?)/g,
@@ -67,9 +71,11 @@
       elThread.appendChild(row);
       return row;
     }
+
     function bubbleUser(text) {
       return bubble("user", escapeHtml(text));
     }
+
     function bubbleAssistant(answer, citations) {
       const citesHtml = (citations || [])
         .map((c) => {
@@ -84,24 +90,42 @@
         (citesHtml ? `<div class="meta"><strong>Fuentes:</strong><ul>${citesHtml}</ul></div>` : "");
       return bubble("bot", inner);
     }
+
     function bubbleLoader() {
       return bubble("bot", `<span style="opacity:.85">Pensando…</span>`);
     }
 
+    // Historial conversacional que se envía al backend
+    let history = [];
+    let chatSessionId = null;
+
     async function ask(query) {
       if (!query) return;
       try {
+        // Mostrar mensaje del usuario en la UI
         bubbleUser(query);
         saveThread();
         scrollToBottom();
 
+        // Agregar al historial antes de llamar al backend
+        history.push({ role: "user", content: query });
+
         const loader = bubbleLoader();
         scrollToBottom();
+
+        const payload = {
+          query,
+          history,
+        };
+        // Si ya tenemos session_id del backend, lo mandamos de vuelta
+        if (chatSessionId) {
+          payload.session_id = chatSessionId;
+        }
 
         const r = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query }),
+          body: JSON.stringify(payload),
         });
 
         let data = null;
@@ -112,7 +136,16 @@
           const msg = (data && (data.detail || data.error)) || "No pude procesar la pregunta.";
           bubbleAssistant(msg, []);
         } else {
-          bubbleAssistant(data?.answer || "(sin respuesta)", data?.citations || []);
+          const answer = data?.answer || "(sin respuesta)";
+          bubbleAssistant(answer, data?.citations || []);
+
+          // Guardar respuesta en historial para próximas repreguntas
+          history.push({ role: "assistant", content: answer });
+
+          // Reutilizar session_id si el backend lo devuelve
+          if (data && data.session_id) {
+            chatSessionId = data.session_id;
+          }
         }
       } catch (e) {
         console.error("[chat] ask error", e);
