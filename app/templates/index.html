@@ -3,32 +3,53 @@
 {% block content %}
 
 <section class="hero">
-  <h1 class="hero-title">Preguntá sobre propuestas <span class="accent">basadas en planes de gobierno</span></h1>
+  <h1 class="hero-title">
+    Preguntá sobre propuestas <span class="accent">basadas en planes de gobierno</span>
+  </h1>
+
   <form class="ask-form" method="get" action="/partidos" role="search" aria-label="Buscar propuestas">
     <div class="ask-input-wrap">
       <input name="q" type="search" placeholder="Ej: transporte eléctrico, educación técnica…" value="">
       <button type="submit" class="btn-primary">Preguntar</button>
     </div>
-    <p class="ask-hint">Tip: combiná tema + partido. Ej: “salud mental Frente Amplio”.</p>
-  </form>
-    <p class="neutral-note" style="margin-top:0.75rem;font-size:0.95rem;line-height:1.5;color:#d1d5db;">
-      ⚖️ <strong>Sitio neutral:</strong> Voto Informado CR no apoya a ningún partido ni candidatura.
-      Nuestro objetivo es ayudarte a entender las propuestas con base en los
-      <strong>planes de gobierno oficiales</strong>, para que tomés una decisión de voto más informada
-      y pensada en un mejor país.
+    <p class="ask-hint">
+      Tip: combiná tema + partido. Ej: “salud mental Frente Amplio”.
     </p>
+  </form>
+
+  <p class="neutral-note" style="margin-top:0.75rem;font-size:0.95rem;line-height:1.5;color:#d1d5db;">
+    ⚖️ <strong>Sitio neutral:</strong> Voto Informado CR no apoya a ningún partido ni candidatura.
+    Nuestro objetivo es ayudarte a entender las propuestas con base en los
+    <strong>planes de gobierno oficiales</strong>, para que tomés una decisión de voto más informada
+    y pensada en un mejor país.
+  </p>
 </section>
 
-<!-- Banner superior (responsive) con rótulo -->
-<aside class="ad-slot" aria-label="Anuncio">
-  <div class="ad-label">Publicidad</div>
-  <ins class="adsbygoogle" style="display:block;min-height:90px"
-       data-ad-client="ca-pub-XXXXXXXXXXXXXXX"
-       data-ad-slot="1234567890"
-       data-ad-format="auto"
-       data-full-width-responsive="true"></ins>
-</aside>
-<script>(adsbygoogle=window.adsbygoogle||[]).push({});</script>
+<section class="texto-editorial" style="max-width:800px;margin:40px auto;font-size:15px;line-height:1.7;color:#cbd5e1;">
+  <h2 style="font-size:22px;margin-bottom:12px;">¿Qué es Voto Informado CR?</h2>
+  <p>
+    Voto Informado CR es un proyecto independiente y neutral cuyo propósito es ayudar a las personas votantes de Costa Rica
+    a comprender mejor las propuestas de los partidos políticos. Este sitio no hace propaganda, no promueve candidaturas y
+    no recibe lineamientos de ningún actor político. Todas las respuestas generadas por la herramienta provienen
+    exclusivamente de planes de gobierno oficiales y documentos públicos emitidos por autoridades como el Tribunal Supremo
+    de Elecciones (TSE) y el Instituto de Formación y Estudios en Democracia (IFED). El objetivo es ofrecer explicaciones
+    claras, comparaciones simples y contexto útil para que cada persona construya su propio criterio, con total libertad
+    y sin sesgos.
+  </p>
+  <p>
+    Las consultas permiten explorar temas como educación, salud, transporte, economía, seguridad ciudadana y más,
+    siempre con base en información verificable. Nuestro interés es fortalecer la transparencia y promover una
+    participación más consciente, ayudando a que cada votante tenga acceso a datos relevantes y organizados antes
+    de tomar una decisión electoral. La idea es que encontrés en un solo lugar la información dispersa en distintos
+    documentos, pero sin modificar su contenido ni reinterpretarlo según intereses partidarios.
+  </p>
+  <p>
+    Voto Informado CR no sustituye documentos oficiales, sino que facilita su comprensión. Cada explicación procura
+    mantener la fidelidad al texto original de los planes de gobierno y de los documentos públicos utilizados como
+    fuente. El enfoque es 100% educativo y cívico: brindar herramientas para que cada persona pueda analizar,
+    contrastar y cuestionar las propuestas, promoviendo así un debate público más informado y respetuoso.
+  </p>
+</section>
 
 <!--
 =====================================================
